@@ -47,7 +47,6 @@
     async function generateStrongFingerprint() {
       const components = [];
 
-      // 1. Basic Info
       components.push(navigator.userAgent || "");
       components.push(navigator.language || "");
       components.push(navigator.platform || "");
@@ -56,7 +55,7 @@
       components.push(screen.colorDepth || 0);
       components.push(new Date().getTimezoneOffset());
 
-      // 2. Canvas Fingerprint
+      // Canvas Fingerprint
       try {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
@@ -73,7 +72,7 @@
         components.push("canvas_error");
       }
 
-      // 3. WebGL Fingerprint
+      // WebGL Fingerprint
       try {
         const canvas = document.createElement("canvas");
         const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
@@ -88,22 +87,16 @@
         components.push("webgl_error");
       }
 
-      // 4. Audio Fingerprint (simple)
+      // Audio
       try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const analyser = audioCtx.createAnalyser();
-        oscillator.connect(analyser);
         components.push(audioCtx.sampleRate.toString());
         audioCtx.close();
       } catch (e) {
         components.push("audio_error");
       }
 
-      // Combine everything
       const raw = components.join("|||");
-      
-      // Create a hash
       const msgBuffer = new TextEncoder().encode(raw);
       const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -115,21 +108,14 @@
     async function sendFingerprint() {
       try {
         const fingerprint = await generateStrongFingerprint();
-        
-        // Send data back to the bot
         tg.sendData(fingerprint);
-        
-        // Close the mini app after short delay
-        setTimeout(() => {
-          tg.close();
-        }, 800);
+        setTimeout(() => tg.close(), 700);
       } catch (err) {
         tg.sendData("hw_error_" + Date.now());
-        setTimeout(() => tg.close(), 800);
+        setTimeout(() => tg.close(), 700);
       }
     }
 
-    // Start verification
     sendFingerprint();
   </script>
 </body>
