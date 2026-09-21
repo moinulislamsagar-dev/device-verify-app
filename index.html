@@ -103,7 +103,7 @@
     tg.setHeaderColor('#0b0e11');
     tg.setBackgroundColor('#0b0e11');
 
-    // ========== Helper functions ==========
+    // ========== Strong Fingerprint Functions ==========
     function canvasFP() {
       try {
         const c = document.createElement('canvas');
@@ -194,34 +194,27 @@
       return (h >>> 0).toString(16);
     }
 
-    // Check for cloned / abnormal Telegram WebApp
+    // Detect cloned / modified Telegram apps
     function telegramIntegrityCheck() {
       const issues = [];
 
       if (!window.Telegram || !window.Telegram.WebApp) {
         issues.push('no_tg_object');
       }
-
       if (!tg.initData || tg.initData.length < 50) {
         issues.push('weak_initdata');
       }
-
       if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
         issues.push('no_user_data');
       }
 
-      // Official platforms
       const validPlatforms = ['android', 'ios', 'tdesktop', 'macos', 'web', 'weba', 'webk', 'unigram', 'android_x'];
       if (tg.platform && !validPlatforms.includes(tg.platform.toLowerCase())) {
         issues.push('unknown_platform');
       }
-
-      // Version should exist
       if (!tg.version || tg.version.length < 3) {
         issues.push('no_version');
       }
-
-      // Color scheme should be present
       if (!tg.colorScheme) {
         issues.push('no_colorscheme');
       }
@@ -232,7 +225,7 @@
       };
     }
 
-    // Try to get public IP (optional, non-blocking)
+    // Get public IP (with timeout)
     async function getPublicIP() {
       try {
         const controller = new AbortController();
@@ -252,14 +245,11 @@
       const ip = await getPublicIP();
 
       const parts = [
-        // Telegram integrity
         integrity.ok ? 'tg_ok' : 'tg_suspicious',
         integrity.issues,
         tg.platform || '',
         tg.version || '',
         tg.colorScheme || '',
-
-        // Classic signals
         navigator.userAgent || '',
         navigator.language || '',
         (navigator.languages || []).join(','),
@@ -271,14 +261,10 @@
         navigator.deviceMemory || 0,
         navigator.maxTouchPoints || 0,
         ('ontouchstart' in window) ? 1 : 0,
-
-        // Strong fingerprints
         canvasFP(),
         webglFP(),
         audioFP(),
         fontsFP(),
-
-        // Network + user binding
         ip,
         user.id || 0,
         user.language_code || ''
@@ -286,12 +272,10 @@
 
       const raw = parts.join('||');
       const shortHash = hashString(raw);
-
-      // Final format: hw_<hash>_<telegram_user_id>
       return 'hw_' + shortHash + '_' + (user.id || '0');
     }
 
-    // ========== 5-6 second flow ==========
+    // ========== 5-6 Second Verification Flow ==========
     async function startVerification() {
       const btn = document.getElementById('startBtn');
       const progress = document.getElementById('progress');
