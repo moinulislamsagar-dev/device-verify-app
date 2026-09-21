@@ -3,120 +3,331 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Device Verification</title>
+  <title>Secure Device Verification</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      margin: 0;
-      padding: 0;
-      background: #0f172a;
-      color: white;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0b0e11;
+      color: #ffffff;
+      min-height: 100vh;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      padding: 20px;
+    }
+    .card {
+      background: #161b22;
+      border-radius: 20px;
+      padding: 32px 24px;
+      width: 100%;
+      max-width: 360px;
       text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.45);
+      border: 1px solid #30363d;
     }
-    .loader {
-      width: 48px;
-      height: 48px;
-      border: 4px solid #334155;
-      border-top: 4px solid #3b82f6;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-bottom: 20px;
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 22px; margin-bottom: 8px; font-weight: 700; }
+    .subtitle { color: #8b949e; font-size: 14px; line-height: 1.5; margin-bottom: 28px; }
+    .progress-container {
+      background: #21262d;
+      border-radius: 12px;
+      height: 12px;
+      overflow: hidden;
+      margin-bottom: 12px;
     }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #238636, #2ea043);
+      border-radius: 12px;
+      transition: width 0.35s ease;
+    }
+    .status {
+      font-size: 13px;
+      color: #8b949e;
+      margin-bottom: 24px;
+      min-height: 20px;
+    }
+    .btn {
+      background: #238636;
+      color: white;
+      border: none;
+      width: 100%;
+      padding: 16px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:disabled {
+      background: #21262d;
+      color: #8b949e;
+      cursor: not-allowed;
+    }
+    .secure-note {
+      margin-top: 20px;
+      font-size: 11px;
+      color: #6e7681;
+      line-height: 1.4;
     }
   </style>
 </head>
 <body>
-  <div class="loader"></div>
-  <h2>Verifying Device...</h2>
-  <p style="color:#94a3b8; font-size:14px;">Please wait a moment</p>
+  <div class="card">
+    <div class="icon">🛡️</div>
+    <h1>Advanced Device Check</h1>
+    <p class="subtitle">
+      This security check detects cloned Telegram apps and multi-accounting.<br>
+      Process takes \~5–6 seconds.
+    </p>
+
+    <div class="progress-container">
+      <div class="progress-bar" id="progress"></div>
+    </div>
+    <div class="status" id="status">Waiting to start...</div>
+
+    <button class="btn" id="startBtn" onclick="startVerification()">Start Secure Verification</button>
+
+    <p class="secure-note">
+      Real users are never banned for same phone model.<br>
+      Only exact device signature + different account is blocked.
+    </p>
+  </div>
 
   <script>
     const tg = window.Telegram.WebApp;
     tg.ready();
     tg.expand();
+    tg.setHeaderColor('#0b0e11');
+    tg.setBackgroundColor('#0b0e11');
 
-    async function generateStrongFingerprint() {
-      const components = [];
-
-      components.push(navigator.userAgent || "");
-      components.push(navigator.language || "");
-      components.push(navigator.platform || "");
-      components.push(navigator.hardwareConcurrency || 0);
-      components.push(screen.width + "x" + screen.height);
-      components.push(screen.colorDepth || 0);
-      components.push(new Date().getTimezoneOffset());
-
-      // Canvas Fingerprint
+    // ========== Helper functions ==========
+    function canvasFP() {
       try {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-        canvas.width = 200;
-        canvas.height = 50;
-        ctx.textBaseline = "top";
-        ctx.font = "14px Arial";
-        ctx.fillStyle = "#f60";
-        ctx.fillRect(10, 10, 100, 30);
-        ctx.fillStyle = "#069";
-        ctx.fillText("DeviceCheck-2026", 15, 15);
-        components.push(canvas.toDataURL());
-      } catch (e) {
-        components.push("canvas_error");
-      }
-
-      // WebGL Fingerprint
-      try {
-        const canvas = document.createElement("canvas");
-        const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-        if (gl) {
-          const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-          if (debugInfo) {
-            components.push(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || "");
-            components.push(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "");
-          }
-        }
-      } catch (e) {
-        components.push("webgl_error");
-      }
-
-      // Audio
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        components.push(audioCtx.sampleRate.toString());
-        audioCtx.close();
-      } catch (e) {
-        components.push("audio_error");
-      }
-
-      const raw = components.join("|||");
-      const msgBuffer = new TextEncoder().encode(raw);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-
-      return "hw_" + hashHex.substring(0, 32);
+        const c = document.createElement('canvas');
+        c.width = 240; c.height = 60;
+        const ctx = c.getContext('2d');
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#f60';
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = '#069';
+        ctx.font = '11pt Arial';
+        ctx.fillText('Cwm fjordbank glyphs vext quiz, 😃', 2, 15);
+        ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+        ctx.font = '18pt Arial';
+        ctx.fillText('Cwm fjordbank glyphs vext quiz, 😃', 4, 45);
+        return c.toDataURL().slice(-64);
+      } catch (e) { return 'canvas_fail'; }
     }
 
-    async function sendFingerprint() {
+    function webglFP() {
       try {
-        const fingerprint = await generateStrongFingerprint();
+        const c = document.createElement('canvas');
+        const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+        if (!gl) return 'no_webgl';
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : '';
+        const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+        return (vendor + '|' + renderer).slice(0, 90);
+      } catch (e) { return 'webgl_fail'; }
+    }
+
+    function audioFP() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const analyser = ctx.createAnalyser();
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        osc.type = 'triangle';
+        osc.connect(analyser);
+        analyser.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(0);
+        const arr = new Float32Array(analyser.frequencyBinCount);
+        analyser.getFloatFrequencyData(arr);
+        osc.stop();
+        ctx.close();
+        return Array.from(arr.slice(0, 25)).map(v => v.toFixed(2)).join(',');
+      } catch (e) { return 'audio_fail'; }
+    }
+
+    function fontsFP() {
+      const baseFonts = ['monospace', 'sans-serif', 'serif'];
+      const testFonts = [
+        'Arial', 'Arial Black', 'Comic Sans MS', 'Courier New', 'Georgia',
+        'Impact', 'Times New Roman', 'Trebuchet MS', 'Verdana',
+        'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro', 'Noto Sans'
+      ];
+      const detected = [];
+      const span = document.createElement('span');
+      span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
+      span.innerHTML = 'mmmmmmmmmmlli';
+      document.body.appendChild(span);
+
+      const baseWidth = {};
+      baseFonts.forEach(b => {
+        span.style.fontFamily = b;
+        baseWidth[b] = span.offsetWidth;
+      });
+
+      testFonts.forEach(f => {
+        let matched = false;
+        baseFonts.forEach(b => {
+          span.style.fontFamily = `'\( {f}', \){b}`;
+          if (span.offsetWidth !== baseWidth[b]) matched = true;
+        });
+        if (matched) detected.push(f);
+      });
+      document.body.removeChild(span);
+      return detected.join(',');
+    }
+
+    function hashString(str) {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(16);
+    }
+
+    // Check for cloned / abnormal Telegram WebApp
+    function telegramIntegrityCheck() {
+      const issues = [];
+
+      if (!window.Telegram || !window.Telegram.WebApp) {
+        issues.push('no_tg_object');
+      }
+
+      if (!tg.initData || tg.initData.length < 50) {
+        issues.push('weak_initdata');
+      }
+
+      if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
+        issues.push('no_user_data');
+      }
+
+      // Official platforms
+      const validPlatforms = ['android', 'ios', 'tdesktop', 'macos', 'web', 'weba', 'webk', 'unigram', 'android_x'];
+      if (tg.platform && !validPlatforms.includes(tg.platform.toLowerCase())) {
+        issues.push('unknown_platform');
+      }
+
+      // Version should exist
+      if (!tg.version || tg.version.length < 3) {
+        issues.push('no_version');
+      }
+
+      // Color scheme should be present
+      if (!tg.colorScheme) {
+        issues.push('no_colorscheme');
+      }
+
+      return {
+        ok: issues.length === 0,
+        issues: issues.join(',')
+      };
+    }
+
+    // Try to get public IP (optional, non-blocking)
+    async function getPublicIP() {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1800);
+        const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+        clearTimeout(timeout);
+        const data = await res.json();
+        return data.ip || 'ip_fail';
+      } catch (e) {
+        return 'ip_timeout';
+      }
+    }
+
+    async function collectFullFingerprint() {
+      const user = tg.initDataUnsafe?.user || {};
+      const integrity = telegramIntegrityCheck();
+      const ip = await getPublicIP();
+
+      const parts = [
+        // Telegram integrity
+        integrity.ok ? 'tg_ok' : 'tg_suspicious',
+        integrity.issues,
+        tg.platform || '',
+        tg.version || '',
+        tg.colorScheme || '',
+
+        // Classic signals
+        navigator.userAgent || '',
+        navigator.language || '',
+        (navigator.languages || []).join(','),
+        screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+        window.devicePixelRatio || 1,
+        new Date().getTimezoneOffset(),
+        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+        navigator.hardwareConcurrency || 0,
+        navigator.deviceMemory || 0,
+        navigator.maxTouchPoints || 0,
+        ('ontouchstart' in window) ? 1 : 0,
+
+        // Strong fingerprints
+        canvasFP(),
+        webglFP(),
+        audioFP(),
+        fontsFP(),
+
+        // Network + user binding
+        ip,
+        user.id || 0,
+        user.language_code || ''
+      ];
+
+      const raw = parts.join('||');
+      const shortHash = hashString(raw);
+
+      // Final format: hw_<hash>_<telegram_user_id>
+      return 'hw_' + shortHash + '_' + (user.id || '0');
+    }
+
+    // ========== 5-6 second flow ==========
+    async function startVerification() {
+      const btn = document.getElementById('startBtn');
+      const progress = document.getElementById('progress');
+      const status = document.getElementById('status');
+
+      btn.disabled = true;
+      btn.innerText = 'Verifying...';
+
+      const stages = [
+        { p: 12, t: 'Checking Telegram client integrity...' },
+        { p: 28, t: 'Reading canvas & WebGL signature...' },
+        { p: 45, t: 'Analyzing audio & fonts...' },
+        { p: 62, t: 'Collecting hardware profile...' },
+        { p: 78, t: 'Checking network environment...' },
+        { p: 92, t: 'Building secure device ID...' },
+        { p: 100, t: 'Sending result to bot...' }
+      ];
+
+      for (let i = 0; i < stages.length; i++) {
+        progress.style.width = stages[i].p + '%';
+        status.innerText = stages[i].t;
+        await new Promise(r => setTimeout(r, 780));
+      }
+
+      try {
+        const fingerprint = await collectFullFingerprint();
+        status.innerText = '✅ Verification successful!';
         tg.sendData(fingerprint);
-        setTimeout(() => tg.close(), 700);
+        setTimeout(() => tg.close(), 1000);
       } catch (err) {
-        tg.sendData("hw_error_" + Date.now());
-        setTimeout(() => tg.close(), 700);
+        status.innerText = 'Verification failed. Please try again.';
+        btn.disabled = false;
+        btn.innerText = 'Retry Verification';
+        progress.style.width = '0%';
       }
     }
-
-    sendFingerprint();
   </script>
 </body>
 </html>
