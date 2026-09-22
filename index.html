@@ -6,63 +6,41 @@
 <title>Device Verification</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(160deg, #0f0c29, #302b63, #24243e);
-    color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh; padding: 20px; text-align: center;
-  }
-  .card {
-    background: rgba(255,255,255,0.08);
-    border-radius: 24px; padding: 28px 22px; max-width: 360px; width: 100%;
-    border: 1px solid rgba(255,255,255,0.12);
-  }
-  .icon { font-size: 48px; margin-bottom: 10px; }
-  h2 { font-size: 19px; margin-bottom: 6px; }
-  .sub { opacity: 0.72; font-size: 12.5px; line-height: 1.45; }
-  .progress {
-    width: 100%; height: 10px; background: rgba(255,255,255,0.12);
-    border-radius: 20px; margin: 20px 0 10px; overflow: hidden;
-  }
-  .bar {
-    height: 100%; width: 0%;
-    background: linear-gradient(90deg, #00f5a0, #00d9f5);
-    border-radius: 20px; transition: width 0.35s ease;
-  }
-  .status { font-size: 12px; opacity: 0.75; min-height: 18px; }
-  .steps { text-align: left; margin-top: 14px; font-size: 11px; opacity: 0.5; line-height: 1.65; }
-  .debug { margin-top: 12px; font-size: 10px; opacity: 0.4; word-break: break-all; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(160deg,#0f0c29,#302b63,#24243e);color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center}
+  .card{background:rgba(255,255,255,.08);border-radius:24px;padding:28px 22px;max-width:360px;width:100%;border:1px solid rgba(255,255,255,.12)}
+  .icon{font-size:48px;margin-bottom:10px}
+  h2{font-size:19px;margin-bottom:6px}
+  .sub{opacity:.72;font-size:12.5px;line-height:1.45}
+  .progress{width:100%;height:10px;background:rgba(255,255,255,.12);border-radius:20px;margin:20px 0 10px;overflow:hidden}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .35s ease}
+  .status{font-size:12px;opacity:.75;min-height:18px}
+  .steps{text-align:left;margin-top:14px;font-size:11px;opacity:.5;line-height:1.65}
 </style>
 </head>
 <body>
 <div class="card">
   <div class="icon">🛡️</div>
-  <h2>Hardware Security Check</h2>
-  <p class="sub">Stable device lock (~8 sec). Same physical device = same ID. Real users are never blocked here.</p>
+  <h2>Hardware Device Lock</h2>
+  <p class="sub">GPU + Canvas + Fonts + Screen + CPU. <b>IP is NOT used for identity.</b> Same phone always same ID.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
-  <div class="status" id="status">Initializing...</div>
+  <div class="status" id="status">Starting hardware scan...</div>
   <div class="steps" id="steps"></div>
-  <div class="debug" id="debug"></div>
 </div>
-
 <script>
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-/* Deterministic hash - same input always same output */
 function h(s) {
   let x = 2166136261;
-  const str = String(s || '');
-  for (let i = 0; i < str.length; i++) {
-    x ^= str.charCodeAt(i);
+  s = String(s || '');
+  for (let i = 0; i < s.length; i++) {
+    x ^= s.charCodeAt(i);
     x = Math.imul(x, 16777619);
   }
   return (x >>> 0).toString(36);
 }
-
 function setStatus(t, p) {
   document.getElementById('status').textContent = t;
   document.getElementById('bar').style.width = p + '%';
@@ -71,25 +49,9 @@ function addStep(t) {
   document.getElementById('steps').innerHTML += '✓ ' + t + '<br>';
 }
 
-/* ---- STABLE hardware only (no random noise) ---- */
+/* ===== HARDWARE ONLY - NO IP IN DEVICE ID ===== */
 
-function stableCanvas() {
-  try {
-    const c = document.createElement('canvas');
-    c.width = 200; c.height = 50;
-    const ctx = c.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillStyle = '#069';
-    ctx.fillText('HWLOCK', 2, 2);
-    ctx.fillStyle = '#f60';
-    ctx.fillRect(80, 10, 50, 20);
-    // toDataURL is stable for same ops on same GPU/browser
-    return h(c.toDataURL().slice(-80));
-  } catch (e) { return 'c0'; }
-}
-
-function stableWebGL() {
+function getWebGL() {
   try {
     const c = document.createElement('canvas');
     const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
@@ -97,147 +59,159 @@ function stableWebGL() {
     const di = gl.getExtension('WEBGL_debug_renderer_info');
     const vendor = di ? String(gl.getParameter(di.UNMASKED_VENDOR_WEBGL) || '') : '';
     const renderer = di ? String(gl.getParameter(di.UNMASKED_RENDERER_WEBGL) || '') : '';
-    const ver = String(gl.getParameter(gl.VERSION) || '');
+    const version = String(gl.getParameter(gl.VERSION) || '');
+    const shading = String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || '');
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
-    return h(vendor + '|' + renderer + '|' + ver + '|' + maxTex);
+    const maxV = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) || 0;
+    const maxR = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
+    return vendor + '|' + renderer + '|' + version + '|' + shading + '|' + maxTex + '|' + maxV + '|' + maxR;
   } catch (e) { return 'w0'; }
 }
 
-function stableFonts() {
+function getCanvas() {
   try {
-    const fonts = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Tahoma','Segoe UI'];
+    const c = document.createElement('canvas');
+    c.width = 240; c.height = 60;
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#f60';
+    ctx.fillRect(10, 5, 100, 30);
+    ctx.fillStyle = '#069';
+    ctx.fillText('HW-DEVICE-LOCK', 12, 12);
+    ctx.fillStyle = 'rgba(50,200,50,0.7)';
+    ctx.font = '11px Times New Roman';
+    ctx.fillText('AaBbCc 012345', 12, 38);
+    ctx.beginPath();
+    ctx.arc(200, 30, 18, 0, Math.PI * 2);
+    ctx.stroke();
+    return c.toDataURL();
+  } catch (e) { return 'c0'; }
+}
+
+function getFonts() {
+  try {
+    const list = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Tahoma','Segoe UI','Roboto','Helvetica Neue','Palatino'];
     const span = document.createElement('span');
     span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
-    span.textContent = 'mmmmmmmmmmlli';
+    span.textContent = 'mmmmmmmmmmlliWw';
     document.body.appendChild(span);
     const base = {};
-    ['monospace','sans-serif','serif'].forEach(function(f) {
+    ['monospace','sans-serif','serif'].forEach(function (f) {
       span.style.fontFamily = f;
       base[f] = span.offsetWidth;
     });
     const found = [];
-    fonts.forEach(function(font) {
-      let ok = false;
-      ['monospace','sans-serif','serif'].forEach(function(b) {
-        span.style.fontFamily = font + ',' + b;
-        if (span.offsetWidth !== base[b]) ok = true;
+    list.forEach(function (font) {
+      let det = false;
+      ['monospace','sans-serif','serif'].forEach(function (b) {
+        span.style.fontFamily = "'" + font + "'," + b;
+        if (span.offsetWidth !== base[b]) det = true;
       });
-      if (ok) found.push(font);
+      if (det) found.push(font);
     });
     document.body.removeChild(span);
-    return h(found.join(','));
+    return found.join(',');
   } catch (e) { return 'f0'; }
 }
 
-function stableScreen() {
-  return h([
+function getScreen() {
+  return [
     screen.width || 0,
     screen.height || 0,
-    screen.colorDepth || 24,
-    window.devicePixelRatio || 1,
     screen.availWidth || 0,
-    screen.availHeight || 0
-  ].join('x'));
+    screen.availHeight || 0,
+    screen.colorDepth || 24,
+    screen.pixelDepth || 24,
+    window.devicePixelRatio || 1
+  ].join('x');
 }
 
-function stableCPU() {
-  return h([
+function getCPU() {
+  return [
     navigator.hardwareConcurrency || 0,
     navigator.deviceMemory || 0,
     navigator.maxTouchPoints || 0,
     navigator.platform || '',
-    navigator.language || ''
-  ].join('|'));
+    navigator.language || '',
+    (navigator.languages || []).slice(0, 3).join(',')
+  ].join('|');
 }
 
-function stableTZ() {
-  let tz = '';
-  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-  return h(tz);
-}
-
-function stableTG() {
+function getTZ() {
   try {
-    const p = String(tg.platform || '');
-    const v = String(tg.version || '');
-    return h(p + '|' + v);
-  } catch (e) { return 't0'; }
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  } catch (e) { return ''; }
 }
 
-async function getIP() {
+function getTG() {
   try {
-    const ctrl = new AbortController();
-    setTimeout(function() { ctrl.abort(); }, 2500);
-    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
-    const d = await r.json();
-    return String(d.ip || '0');
-  } catch (e) { return '0'; }
+    return String(tg.platform || '') + '|' + String(tg.version || '');
+  } catch (e) { return ''; }
 }
 
 async function run() {
   const t0 = Date.now();
   try {
-    setStatus('Canvas signature...', 10);
-    await new Promise(function(r) { setTimeout(r, 700); });
-    const canvas = stableCanvas();
-    addStep('Canvas');
+    setStatus('Reading GPU / WebGL...', 12);
+    await new Promise(function (r) { setTimeout(r, 800); });
+    const webgl = getWebGL();
+    addStep('GPU / WebGL renderer');
 
-    setStatus('GPU / WebGL...', 22);
-    await new Promise(function(r) { setTimeout(r, 700); });
-    const webgl = stableWebGL();
-    addStep('GPU');
+    setStatus('Canvas rendering signature...', 26);
+    await new Promise(function (r) { setTimeout(r, 800); });
+    const canvas = getCanvas();
+    addStep('Canvas signature');
 
-    setStatus('Fonts...', 35);
-    await new Promise(function(r) { setTimeout(r, 700); });
-    const fonts = stableFonts();
-    addStep('Fonts');
+    setStatus('Installed fonts...', 40);
+    await new Promise(function (r) { setTimeout(r, 750); });
+    const fonts = getFonts();
+    addStep('Font set');
 
-    setStatus('Screen...', 48);
-    await new Promise(function(r) { setTimeout(r, 600); });
-    const scr = stableScreen();
-    addStep('Screen');
+    setStatus('Screen hardware...', 54);
+    await new Promise(function (r) { setTimeout(r, 650); });
+    const scr = getScreen();
+    addStep('Screen metrics');
 
-    setStatus('CPU / Memory...', 60);
-    await new Promise(function(r) { setTimeout(r, 600); });
-    const cpu = stableCPU();
-    addStep('CPU');
+    setStatus('CPU / Memory / Touch...', 68);
+    await new Promise(function (r) { setTimeout(r, 650); });
+    const cpu = getCPU();
+    addStep('CPU + Memory');
 
-    setStatus('Timezone + Telegram...', 72);
-    await new Promise(function(r) { setTimeout(r, 600); });
-    const tz = stableTZ();
-    const tgs = stableTG();
-    addStep('Client');
+    setStatus('Timezone + client...', 82);
+    await new Promise(function (r) { setTimeout(r, 600); });
+    const tz = getTZ();
+    const tgs = getTG();
+    addStep('Timezone + Telegram');
 
-    setStatus('Network IP...', 84);
-    await new Promise(function(r) { setTimeout(r, 500); });
-    const ip = await getIP();
-    addStep('IP');
+    setStatus('Building hardware ID...', 92);
+    await new Promise(function (r) { setTimeout(r, 500); });
 
-    setStatus('Building device ID...', 92);
-    await new Promise(function(r) { setTimeout(r, 400); });
+    // *** DEVICE ID = HARDWARE ONLY ***
+    // IP is intentionally NOT included
+    // Changing IP will NOT change this ID
+    const raw = [
+      webgl,
+      h(canvas),
+      fonts,
+      scr,
+      cpu,
+      tz,
+      tgs
+    ].join('||');
 
-    /*
-      PRIMARY (must match same physical device every time):
-        GPU + Screen + CPU + Fonts + Canvas + TZ + TG platform
-      SECONDARY (IP):
-        included so different networks add signal, but does NOT replace hardware
-    */
-    const primary = [webgl, scr, cpu, fonts, canvas, tz, tgs].join('||');
-    const fp = 'hw_' + h(primary) + '_' + h(ip).slice(0, 8);
+    const fp = 'hw_' + h(raw);
 
     const elapsed = Date.now() - t0;
     if (elapsed < 7800) {
-      setStatus('Finalizing...', 96);
-      await new Promise(function(r) { setTimeout(r, 7800 - elapsed); });
+      setStatus('Locking device...', 97);
+      await new Promise(function (r) { setTimeout(r, 7800 - elapsed); });
     }
 
-    setStatus('Device locked!', 100);
-    addStep('Done');
-    document.getElementById('debug').textContent = fp.slice(0, 40) + '...';
+    setStatus('Hardware ID locked!', 100);
+    addStep('ID ready (no IP)');
+    await new Promise(function (r) { setTimeout(r, 400); });
 
-    await new Promise(function(r) { setTimeout(r, 400); });
-
-    // Send to bot - must use tg.sendData
     tg.sendData(fp);
   } catch (err) {
     setStatus('Completing...', 98);
@@ -246,15 +220,14 @@ async function run() {
       String(screen.height || 0),
       String(navigator.hardwareConcurrency || 0),
       String(navigator.platform || ''),
-      String(navigator.language || '')
+      String(navigator.language || ''),
+      String(window.devicePixelRatio || 1)
     ].join('|'));
-    setTimeout(function() {
-      try { tg.sendData(fb); } catch (e) {}
-    }, 300);
+    setTimeout(function () { try { tg.sendData(fb); } catch (e) {} }, 300);
   }
 }
 
-setTimeout(function() {
+setTimeout(function () {
   const st = document.getElementById('status');
   if (st && st.textContent.indexOf('locked') === -1) {
     try {
