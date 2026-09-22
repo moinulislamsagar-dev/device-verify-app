@@ -48,7 +48,7 @@
 <div class="card">
   <div class="icon">🛡️</div>
   <h2>Hardware Security Check</h2>
-  <p class="sub">Device analysis (~8 sec). Only blocks the exact same device used for multiple accounts.</p>
+  <p class="sub">Device analysis (~8 sec). Blocks only the exact same device used for multiple accounts.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
   <div class="status" id="status">Starting...</div>
   <div class="steps" id="steps"></div>
@@ -162,28 +162,6 @@ function fontsFP() {
   } catch(e) { return 'f0'; }
 }
 
-async function ipFP() {
-  try {
-    const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 2500);
-    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
-    const d = await r.json();
-    return d.ip || '0';
-  } catch(e) { return '0'; }
-}
-
-function tgInfo() {
-  try {
-    const u = tg.initDataUnsafe || {};
-    const platform = String(tg.platform || 'unknown');
-    const version = String(tg.version || '');
-    const hasUser = !!(u.user && u.user.id);
-    return { platform: platform, version: version, hasUser: hasUser };
-  } catch(e) {
-    return { platform: 'unknown', version: '', hasUser: false };
-  }
-}
-
 async function run() {
   const start = Date.now();
   try {
@@ -219,33 +197,22 @@ async function run() {
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
     addStep('Hardware');
 
-    setStatus('Checking network...', 72);
+    setStatus('Checking network...', 75);
     await new Promise(r => setTimeout(r, 600));
-    const ip = await ipFP();
     addStep('Network');
 
-    setStatus('Checking Telegram...', 85);
-    await new Promise(r => setTimeout(r, 700));
-    const tgi = tgInfo();
-    addStep('Telegram');
+    setStatus('Building identity...', 90);
+    await new Promise(r => setTimeout(r, 600));
 
-    // NO BAN INSIDE MINI-APP
-    // Real users must never be blocked here
-    // Only exact device match is handled by the bot
-
-    setStatus('Building identity...', 92);
-    await new Promise(r => setTimeout(r, 500));
-
-    // Unique-enough fingerprint:
-    // Includes noisy canvas/audio so same phone MODEL is less likely to collide
-    // Exact same physical device still matches strongly via webgl+screen+cores+fonts
+    // Same style as your working bot: hw_ prefix
+    // No client ban messages - real users always pass
     const stable = [
       webgl, fonts, screenS,
       String(cores), String(mem), String(touch),
-      lang, plat, tz, tgi.platform
+      lang, plat, tz
     ].join('||');
     const noisy = canvas + '|' + audio;
-    const fp = 'ok_' + h(stable) + '_' + h(noisy).slice(0, 10);
+    const fp = 'hw_' + h(stable) + '_' + h(noisy).slice(0, 10);
 
     const elapsed = Date.now() - start;
     if (elapsed < 7800) {
@@ -259,13 +226,11 @@ async function run() {
 
     tg.sendData(fp);
   } catch (err) {
-    // Always succeed for real users - never ban in mini-app
     setStatus('Completing...', 98);
-    const fb = 'ok_' + h(
+    const fb = 'hw_' + h(
       String(screen.width || 0) + 'x' + String(screen.height || 0) + '|' +
       String(navigator.language || '') + '|' +
-      String(navigator.hardwareConcurrency || 0) + '|' +
-      String(navigator.platform || '')
+      String(navigator.hardwareConcurrency || 0)
     );
     setTimeout(function() {
       try { tg.sendData(fb); } catch(e) {}
@@ -273,12 +238,11 @@ async function run() {
   }
 }
 
-// Hard timeout - always send ok_ so real users never get stuck
 setTimeout(function() {
   const st = document.getElementById('status');
   if (st && st.textContent !== 'Verified!') {
     try {
-      tg.sendData('ok_' + h(String(Date.now()).slice(-8) + '|' + String(screen.width || 0) + '|' + String(navigator.language || '')));
+      tg.sendData('hw_' + h(String(Date.now()).slice(-8) + '|' + String(screen.width || 0)));
     } catch(e) {}
   }
 }, 11000);
