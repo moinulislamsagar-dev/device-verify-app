@@ -72,7 +72,7 @@ function hashString(str) {
   return Math.abs(hash).toString(36);
 }
 
-async function getCanvasFP() {
+function getCanvasFP() {
   try {
     const canvas = document.createElement('canvas');
     canvas.width = 240; canvas.height = 60;
@@ -89,7 +89,7 @@ async function getCanvasFP() {
   } catch(e) { return 'c0'; }
 }
 
-async function getWebGLFP() {
+function getWebGLFP() {
   try {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
@@ -101,85 +101,93 @@ async function getWebGLFP() {
   } catch(e) { return 'w0'; }
 }
 
-async function getAudioFP() {
-  return new Promise(resolve => {
+function getAudioFP() {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve('a0'), 800);
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) { clearTimeout(timeout); resolve('a0'); return; }
+      const ctx = new AudioCtx();
       const oscillator = ctx.createOscillator();
       const analyser = ctx.createAnalyser();
       const gain = ctx.createGain();
-      const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
       gain.gain.value = 0;
       oscillator.type = 'triangle';
       oscillator.connect(analyser);
-      analyser.connect(scriptProcessor);
-      scriptProcessor.connect(gain);
+      analyser.connect(gain);
       gain.connect(ctx.destination);
       oscillator.start(0);
-      scriptProcessor.onaudioprocess = function(e) {
-        const data = new Float32Array(analyser.frequencyBinCount);
-        analyser.getFloatFrequencyData(data);
-        oscillator.stop();
-        scriptProcessor.disconnect();
-        ctx.close();
-        resolve(hashString(data.slice(0, 30).join(',')));
-      };
-      setTimeout(() => resolve('a0'), 500);
-    } catch(e) { resolve('a0'); }
+      setTimeout(() => {
+        try {
+          const data = new Float32Array(analyser.frequencyBinCount);
+          analyser.getFloatFrequencyData(data);
+          oscillator.stop();
+          ctx.close();
+          clearTimeout(timeout);
+          resolve(hashString(data.slice(0, 20).join(',')));
+        } catch(e) {
+          clearTimeout(timeout);
+          resolve('a0');
+        }
+      }, 100);
+    } catch(e) {
+      clearTimeout(timeout);
+      resolve('a0');
+    }
   });
 }
 
 function getFontsFP() {
-  const fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Palatino', 'Garamond', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
-  const base = [];
-  const test = document.createElement('span');
-  test.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
-  test.innerHTML = 'mmmmmmmmmmlli';
-  document.body.appendChild(test);
-  const defaultWidth = {};
-  ['monospace', 'sans-serif', 'serif'].forEach(f => {
-    test.style.fontFamily = f;
-    defaultWidth[f] = test.offsetWidth;
-  });
-  fonts.forEach(font => {
-    let detected = false;
-    ['monospace', 'sans-serif', 'serif'].forEach(baseFont => {
-      test.style.fontFamily = font + ',' + baseFont;
-      if (test.offsetWidth !== defaultWidth[baseFont]) detected = true;
+  try {
+    const fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Impact'];
+    const test = document.createElement('span');
+    test.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
+    test.innerHTML = 'mmmmmmmmmmlli';
+    document.body.appendChild(test);
+    const defaultWidth = {};
+    ['monospace', 'sans-serif', 'serif'].forEach(f => {
+      test.style.fontFamily = f;
+      defaultWidth[f] = test.offsetWidth;
     });
-    if (detected) base.push(font);
-  });
-  document.body.removeChild(test);
-  return hashString(base.join(','));
+    const found = [];
+    fonts.forEach(font => {
+      let detected = false;
+      ['monospace', 'sans-serif', 'serif'].forEach(baseFont => {
+        test.style.fontFamily = font + ',' + baseFont;
+        if (test.offsetWidth !== defaultWidth[baseFont]) detected = true;
+      });
+      if (detected) found.push(font);
+    });
+    document.body.removeChild(test);
+    return hashString(found.join(','));
+  } catch(e) { return 'f0'; }
 }
 
 async function getIP() {
   try {
-    const r = await fetch('https://api.ipify.org?format=json');
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 2000);
+    const r = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
+    clearTimeout(t);
     const d = await r.json();
     return d.ip || '0';
   } catch(e) { return '0'; }
 }
 
-function getTelegramIntegrity() {
+function getTelegramInfo() {
   try {
-    const u = tg.initDataUnsafe || {};
-    const platform = tg.platform || '';
-    const version = tg.version || '';
-    const colorScheme = tg.colorScheme || '';
-    // Cloned apps often have incomplete initData or strange platform
+    const u = (tg.initDataUnsafe) || {};
+    const platform = String(tg.platform || 'unknown');
+    const version = String(tg.version || '');
     const hasUser = !!(u.user && u.user.id);
-    const isOfficial = platform === 'android' || platform === 'ios' || platform === 'tdesktop' || platform === 'web' || platform === 'weba' || platform === 'macos';
     return {
-      hasUser,
-      platform,
-      version,
-      colorScheme,
-      isOfficial,
+      platform: platform,
+      version: version,
+      hasUser: hasUser,
       userId: hasUser ? u.user.id : 0
     };
   } catch(e) {
-    return { hasUser: false, platform: 'unknown', version: '', colorScheme: '', isOfficial: false, userId: 0 };
+    return { platform: 'unknown', version: '', hasUser: false, userId: 0 };
   }
 }
 
@@ -187,66 +195,91 @@ async function collectFullFingerprint() {
   const status = document.getElementById('status');
   const bar = document.getElementById('bar');
 
-  status.textContent = 'Checking canvas...';
-  bar.style.width = '15%';
-  const canvas = await getCanvasFP();
-  await new Promise(r => setTimeout(r, 400));
+  try {
+    status.textContent = 'Checking canvas...';
+    bar.style.width = '12%';
+    const canvas = getCanvasFP();
+    await new Promise(r => setTimeout(r, 300));
 
-  status.textContent = 'Checking GPU...';
-  bar.style.width = '30%';
-  const webgl = await getWebGLFP();
-  await new Promise(r => setTimeout(r, 400));
+    status.textContent = 'Checking GPU...';
+    bar.style.width = '25%';
+    const webgl = getWebGLFP();
+    await new Promise(r => setTimeout(r, 300));
 
-  status.textContent = 'Checking audio...';
-  bar.style.width = '45%';
-  const audio = await getAudioFP();
-  await new Promise(r => setTimeout(r, 400));
+    status.textContent = 'Checking audio...';
+    bar.style.width = '40%';
+    const audio = await getAudioFP();
+    await new Promise(r => setTimeout(r, 200));
 
-  status.textContent = 'Checking fonts...';
-  bar.style.width = '60%';
-  const fonts = getFontsFP();
-  await new Promise(r => setTimeout(r, 300));
+    status.textContent = 'Checking fonts...';
+    bar.style.width = '55%';
+    const fonts = getFontsFP();
+    await new Promise(r => setTimeout(r, 200));
 
-  status.textContent = 'Checking network...';
-  bar.style.width = '75%';
-  const ip = await getIP();
-  await new Promise(r => setTimeout(r, 400));
+    status.textContent = 'Checking network...';
+    bar.style.width = '70%';
+    const ip = await getIP();
+    await new Promise(r => setTimeout(r, 200));
 
-  status.textContent = 'Checking Telegram integrity...';
-  bar.style.width = '90%';
-  const tgInfo = getTelegramIntegrity();
-  await new Promise(r => setTimeout(r, 500));
+    status.textContent = 'Checking Telegram...';
+    bar.style.width = '85%';
+    const tgInfo = getTelegramInfo();
+    await new Promise(r => setTimeout(r, 300));
 
-  // Hardware signals
-  const screen = screen.width + 'x' + screen.height + 'x' + (screen.colorDepth || 24);
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-  const cores = navigator.hardwareConcurrency || 0;
-  const memory = navigator.deviceMemory || 0;
-  const lang = navigator.language || '';
-  const platform = navigator.platform || '';
-  const touch = navigator.maxTouchPoints || 0;
+    status.textContent = 'Building fingerprint...';
+    bar.style.width = '95%';
 
-  // Build strong fingerprint (hardware focused, IP is secondary)
-  // Real users with same phone model will have very similar but not identical fingerprints
-  // because of canvas + audio noise + fonts
-  const raw = [
-    canvas, webgl, audio, fonts,
-    screen, timezone, cores, memory, lang, platform, touch,
-    tgInfo.platform, tgInfo.version
-  ].join('|');
+    const screenStr = (screen.width || 0) + 'x' + (screen.height || 0) + 'x' + (screen.colorDepth || 24);
+    let timezone = '';
+    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+    const cores = navigator.hardwareConcurrency || 0;
+    const memory = navigator.deviceMemory || 0;
+    const lang = navigator.language || '';
+    const platform = navigator.platform || '';
+    const touch = navigator.maxTouchPoints || 0;
 
-  const fpHash = 'hw_' + hashString(raw) + '_' + hashString(canvas + webgl + audio).slice(0, 8);
+    // Strong hardware-focused fingerprint
+    const raw = [
+      canvas, webgl, audio, fonts,
+      screenStr, timezone, String(cores), String(memory),
+      lang, platform, String(touch),
+      tgInfo.platform, tgInfo.version
+    ].join('|');
 
-  status.textContent = 'Finalizing...';
-  bar.style.width = '100%';
-  await new Promise(r => setTimeout(r, 600));
+    const fpHash = 'hw_' + hashString(raw) + '_' + hashString(canvas + webgl + audio).slice(0, 8);
 
-  // Send to bot
-  tg.sendData(fpHash);
+    status.textContent = 'Done!';
+    bar.style.width = '100%';
+    await new Promise(r => setTimeout(r, 400));
+
+    // Send to bot
+    tg.sendData(fpHash);
+  } catch (err) {
+    status.textContent = 'Error, sending basic fingerprint...';
+    // Fallback simple fingerprint so it never gets stuck
+    const fallback = 'hw_' + hashString(
+      (screen.width||0) + 'x' + (screen.height||0) + '|' +
+      (navigator.language||'') + '|' +
+      (navigator.platform||'') + '|' +
+      (navigator.hardwareConcurrency||0)
+    );
+    setTimeout(() => tg.sendData(fallback), 500);
+  }
 }
 
-// Start after short delay
-setTimeout(collectFullFingerprint, 800);
+// Safety: force finish after 8 seconds no matter what
+setTimeout(() => {
+  const status = document.getElementById('status');
+  if (status && status.textContent !== 'Done!') {
+    status.textContent = 'Finishing...';
+    const fallback = 'hw_' + hashString(
+      Date.now() + '|' + (screen.width||0) + '|' + (navigator.language||'')
+    );
+    try { tg.sendData(fallback); } catch(e) {}
+  }
+}, 8000);
+
+setTimeout(collectFullFingerprint, 600);
 </script>
 </body>
 </html>
