@@ -42,18 +42,16 @@
   }
   .status { font-size: 12px; opacity: 0.7; min-height: 18px; }
   .steps { text-align: left; margin-top: 16px; font-size: 11px; opacity: 0.55; line-height: 1.7; }
-  .fail { color: #ff6b6b; font-size: 14px; margin-top: 12px; display: none; }
 </style>
 </head>
 <body>
 <div class="card">
-  <div class="icon" id="icon">🛡️</div>
-  <h2 id="title">Hardware Security Check</h2>
-  <p class="sub" id="sub">Deep device analysis (~8 sec). Only 1 account per device allowed.</p>
+  <div class="icon">🛡️</div>
+  <h2>Hardware Security Check</h2>
+  <p class="sub">Device analysis (~8 sec). Only blocks the exact same device used for multiple accounts.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
   <div class="status" id="status">Starting...</div>
   <div class="steps" id="steps"></div>
-  <div class="fail" id="fail"></div>
 </div>
 
 <script>
@@ -63,8 +61,9 @@ tg.expand();
 
 function h(s) {
   let x = 0;
-  for (let i = 0; i < String(s).length; i++) {
-    x = ((x << 5) - x) + String(s).charCodeAt(i);
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i++) {
+    x = ((x << 5) - x) + str.charCodeAt(i);
     x |= 0;
   }
   return Math.abs(x).toString(36);
@@ -104,7 +103,7 @@ function webglFP() {
     const di = gl.getExtension('WEBGL_debug_renderer_info');
     const v = di ? gl.getParameter(di.UNMASKED_VENDOR_WEBGL) : 'nv';
     const r = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : 'nr';
-    return h(v + '|' + r + '|' + gl.getParameter(gl.VERSION));
+    return h(v + '|' + r + '|' + (gl.getParameter(gl.VERSION) || ''));
   } catch(e) { return 'w0'; }
 }
 
@@ -173,33 +172,16 @@ async function ipFP() {
   } catch(e) { return '0'; }
 }
 
-function tgCheck() {
+function tgInfo() {
   try {
     const u = tg.initDataUnsafe || {};
-    const platform = String(tg.platform || '');
+    const platform = String(tg.platform || 'unknown');
     const version = String(tg.version || '');
     const hasUser = !!(u.user && u.user.id);
-    const hasAuth = !!(tg.initData && String(tg.initData).length > 20);
-    const official = ['android','ios','tdesktop','web','weba','macos','android_x','unigram'].indexOf(platform) >= 0;
-    return { platform, version, hasUser, hasAuth, official, uid: hasUser ? u.user.id : 0 };
+    return { platform: platform, version: version, hasUser: hasUser };
   } catch(e) {
-    return { platform: 'x', version: '', hasUser: false, hasAuth: false, official: false, uid: 0 };
+    return { platform: 'unknown', version: '', hasUser: false };
   }
-}
-
-function showBan(msg) {
-  document.getElementById('icon').textContent = '⛔';
-  document.getElementById('title').textContent = 'Access Denied';
-  document.getElementById('sub').textContent = '';
-  document.getElementById('status').textContent = '';
-  document.getElementById('bar').style.width = '100%';
-  document.getElementById('bar').style.background = '#ff6b6b';
-  document.getElementById('fail').style.display = 'block';
-  document.getElementById('fail').textContent = msg;
-  // Send ban result to bot
-  setTimeout(function() {
-    try { tg.sendData('ban_multi'); } catch(e) {}
-  }, 1500);
 }
 
 async function run() {
@@ -213,9 +195,9 @@ async function run() {
     setStatus('Analyzing GPU...', 22);
     await new Promise(r => setTimeout(r, 700));
     const webgl = webglFP();
-    addStep('GPU / WebGL');
+    addStep('GPU');
 
-    setStatus('Checking audio hardware...', 35);
+    setStatus('Checking audio...', 35);
     await new Promise(r => setTimeout(r, 600));
     const audio = await audioFP();
     addStep('Audio');
@@ -227,7 +209,7 @@ async function run() {
 
     setStatus('Reading hardware...', 60);
     await new Promise(r => setTimeout(r, 700));
-    const screenS = (screen.width||0) + 'x' + (screen.height||0) + 'x' + (screen.colorDepth||24);
+    const screenS = (screen.width || 0) + 'x' + (screen.height || 0) + 'x' + (screen.colorDepth || 24) + 'x' + (window.devicePixelRatio || 1);
     const cores = navigator.hardwareConcurrency || 0;
     const mem = navigator.deviceMemory || 0;
     const touch = navigator.maxTouchPoints || 0;
@@ -235,43 +217,35 @@ async function run() {
     const plat = navigator.platform || '';
     let tz = '';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
-    addStep('Screen + CPU');
+    addStep('Hardware');
 
     setStatus('Checking network...', 72);
     await new Promise(r => setTimeout(r, 600));
     const ip = await ipFP();
-    addStep('IP');
+    addStep('Network');
 
-    setStatus('Checking real Telegram...', 85);
-    await new Promise(r => setTimeout(r, 800));
-    const tgi = tgCheck();
-    addStep('Telegram client');
+    setStatus('Checking Telegram...', 85);
+    await new Promise(r => setTimeout(r, 700));
+    const tgi = tgInfo();
+    addStep('Telegram');
 
-    // --- LOCAL REVIEW (inside mini-app) ---
-    // Fake / cloned client detection
-    if (!tgi.hasUser || !tgi.hasAuth) {
-      showBan('Fake or incomplete Telegram client detected.');
-      return;
-    }
-    if (!tgi.official) {
-      // Soft warning only - some clients are ok, still send ok with mark
-      // Strict mode: uncomment next 2 lines to ban unknown platforms
-      // showBan('Unofficial / cloned Telegram app detected.');
-      // return;
-    }
+    // NO BAN INSIDE MINI-APP
+    // Real users must never be blocked here
+    // Only exact device match is handled by the bot
 
     setStatus('Building identity...', 92);
     await new Promise(r => setTimeout(r, 500));
 
-    // Stable fingerprint (same device = same id)
+    // Unique-enough fingerprint:
+    // Includes noisy canvas/audio so same phone MODEL is less likely to collide
+    // Exact same physical device still matches strongly via webgl+screen+cores+fonts
     const stable = [
       webgl, fonts, screenS,
       String(cores), String(mem), String(touch),
-      lang, plat, tz,
-      tgi.platform, String(tgi.official)
+      lang, plat, tz, tgi.platform
     ].join('||');
-    const secondary = canvas.slice(0, 8) + '|' + audio.slice(0, 6);
-    const fp = 'ok_' + h(stable) + '_' + h(secondary).slice(0, 8);
+    const noisy = canvas + '|' + audio;
+    const fp = 'ok_' + h(stable) + '_' + h(noisy).slice(0, 10);
 
     const elapsed = Date.now() - start;
     if (elapsed < 7800) {
@@ -280,26 +254,34 @@ async function run() {
     }
 
     setStatus('Verified!', 100);
-    addStep('Identity locked');
+    addStep('Done');
     await new Promise(r => setTimeout(r, 400));
 
-    // Only send simple result to bot
     tg.sendData(fp);
   } catch (err) {
-    setStatus('Finishing...', 95);
-    const fb = 'ok_' + h(String(screen.width) + '|' + String(navigator.language) + '|' + String(navigator.hardwareConcurrency));
-    setTimeout(function() { try { tg.sendData(fb); } catch(e) {} }, 400);
+    // Always succeed for real users - never ban in mini-app
+    setStatus('Completing...', 98);
+    const fb = 'ok_' + h(
+      String(screen.width || 0) + 'x' + String(screen.height || 0) + '|' +
+      String(navigator.language || '') + '|' +
+      String(navigator.hardwareConcurrency || 0) + '|' +
+      String(navigator.platform || '')
+    );
+    setTimeout(function() {
+      try { tg.sendData(fb); } catch(e) {}
+    }, 300);
   }
 }
 
+// Hard timeout - always send ok_ so real users never get stuck
 setTimeout(function() {
   const st = document.getElementById('status');
   if (st && st.textContent !== 'Verified!') {
     try {
-      tg.sendData('ok_' + h(String(Date.now()).slice(-6) + '|' + String(screen.width)));
+      tg.sendData('ok_' + h(String(Date.now()).slice(-8) + '|' + String(screen.width || 0) + '|' + String(navigator.language || '')));
     } catch(e) {}
   }
-}, 12000);
+}, 11000);
 
 setTimeout(run, 400);
 </script>
