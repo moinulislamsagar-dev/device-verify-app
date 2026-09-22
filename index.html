@@ -259,16 +259,19 @@ async function run() {
     setStatus('Building hardware identity...', 90);
     await new Promise(r => setTimeout(r, 600));
 
-    // Combined strong fingerprint (hardware primary, IP secondary)
-    const raw = [
-      canvas, webgl, audio, fonts,
-      screenS, String(cores), String(mem), String(touch),
+    // Stable hardware identity (same device = same hash)
+    // Heavy weight on stable signals: GPU, screen, cores, platform, fonts, TG client
+    // Audio/canvas used as secondary (can have small noise)
+    const stable = [
+      webgl, fonts, screenS,
+      String(cores), String(mem), String(touch),
       lang, plat, tz,
-      tgi.platform, tgi.version, String(tgi.hasAuth), String(tgi.official)
+      tgi.platform, String(tgi.official), String(tgi.hasAuth)
     ].join('||');
 
-    const mainHash = h(raw);
-    const extra = h(canvas + webgl + audio + fonts).slice(0, 10);
+    const secondary = canvas + '|' + audio.slice(0, 6);
+    const mainHash = h(stable);
+    const extra = h(secondary).slice(0, 8);
     const fp = 'hw_' + mainHash + '_' + extra;
 
     // Ensure minimum ~8 seconds total
