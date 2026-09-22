@@ -6,12 +6,12 @@
 <title>Device Verification</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
+  * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    background: linear-gradient(160deg, #0f0c29, #302b63, #24243e);
     color: #fff;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
@@ -20,41 +20,44 @@
     text-align: center;
   }
   .card {
-    background: rgba(255,255,255,0.08);
-    border-radius: 20px;
-    padding: 30px 25px;
-    max-width: 340px;
+    background: rgba(255,255,255,0.07);
+    border-radius: 24px;
+    padding: 32px 24px;
+    max-width: 360px;
     width: 100%;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
   }
-  h2 { margin: 0 0 10px; font-size: 22px; }
-  p { opacity: 0.8; font-size: 14px; line-height: 1.5; }
+  .icon { font-size: 52px; margin-bottom: 12px; }
+  h2 { margin: 0 0 8px; font-size: 20px; font-weight: 700; }
+  .sub { opacity: 0.75; font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
   .progress {
     width: 100%;
-    height: 8px;
-    background: rgba(255,255,255,0.15);
-    border-radius: 10px;
-    margin: 25px 0 15px;
+    height: 10px;
+    background: rgba(255,255,255,0.12);
+    border-radius: 20px;
+    margin: 22px 0 12px;
     overflow: hidden;
   }
   .bar {
     height: 100%;
     width: 0%;
-    background: linear-gradient(90deg, #00d2ff, #3a7bd5);
-    border-radius: 10px;
-    transition: width 0.3s;
+    background: linear-gradient(90deg, #00f5a0, #00d9f5);
+    border-radius: 20px;
+    transition: width 0.4s ease;
   }
-  .status { font-size: 13px; opacity: 0.7; min-height: 20px; }
-  .icon { font-size: 48px; margin-bottom: 15px; }
+  .status { font-size: 12px; opacity: 0.7; min-height: 18px; letter-spacing: 0.3px; }
+  .steps { text-align: left; margin-top: 18px; font-size: 11px; opacity: 0.55; line-height: 1.7; }
 </style>
 </head>
 <body>
 <div class="card">
   <div class="icon">🛡️</div>
-  <h2>Device Security Check</h2>
-  <p>Verifying your device to prevent multi-accounting. This takes a few seconds.</p>
+  <h2>Hardware Security Check</h2>
+  <p class="sub">Deep device analysis to allow only 1 account per device. Please wait ~8 seconds.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
-  <div class="status" id="status">Initializing...</div>
+  <div class="status" id="status">Starting security scan...</div>
+  <div class="steps" id="steps"></div>
 </div>
 
 <script>
@@ -62,224 +65,248 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-function hashString(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+function h(s) {
+  let x = 0;
+  for (let i = 0; i < s.length; i++) {
+    x = ((x << 5) - x) + s.charCodeAt(i);
+    x |= 0;
   }
-  return Math.abs(hash).toString(36);
+  return Math.abs(x).toString(36);
 }
 
-function getCanvasFP() {
+function setStatus(t, p) {
+  document.getElementById('status').textContent = t;
+  document.getElementById('bar').style.width = p + '%';
+}
+
+function addStep(t) {
+  const el = document.getElementById('steps');
+  el.innerHTML += '✓ ' + t + '<br>';
+}
+
+function canvasFP() {
   try {
-    const canvas = document.createElement('canvas');
-    canvas.width = 240; canvas.height = 60;
-    const ctx = canvas.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
+    const c = document.createElement('canvas');
+    c.width = 280; c.height = 80;
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#f60';
-    ctx.fillRect(10, 10, 100, 30);
+    ctx.fillRect(20, 10, 120, 40);
     ctx.fillStyle = '#069';
-    ctx.fillText('DeviceVerify@2026', 2, 15);
-    ctx.fillStyle = 'rgba(102,204,0,0.7)';
-    ctx.fillText('FlexiFlash', 4, 35);
-    return hashString(canvas.toDataURL());
+    ctx.font = '16px Arial';
+    ctx.fillText('HW-SEC-2026@Flexi', 5, 25);
+    ctx.fillStyle = 'rgba(50,200,50,0.8)';
+    ctx.font = '12px Times';
+    ctx.fillText(navigator.userAgent.slice(0, 40), 5, 55);
+    ctx.beginPath();
+    ctx.arc(200, 40, 25, 0, Math.PI * 2);
+    ctx.stroke();
+    return h(c.toDataURL());
   } catch(e) { return 'c0'; }
 }
 
-function getWebGLFP() {
+function webglFP() {
   try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
     if (!gl) return 'w0';
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-    const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : '';
-    const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : '';
-    return hashString(vendor + '|' + renderer);
+    const di = gl.getExtension('WEBGL_debug_renderer_info');
+    const v = di ? gl.getParameter(di.UNMASKED_VENDOR_WEBGL) : 'nv';
+    const r = di ? gl.getParameter(di.UNMASKED_RENDERER_WEBGL) : 'nr';
+    const params = [
+      gl.getParameter(gl.VERSION),
+      gl.getParameter(gl.SHADING_LANGUAGE_VERSION),
+      gl.getParameter(gl.MAX_TEXTURE_SIZE),
+      gl.getParameter(gl.MAX_VERTEX_ATTRIBS)
+    ].join('|');
+    return h(v + '|' + r + '|' + params);
   } catch(e) { return 'w0'; }
 }
 
-function getAudioFP() {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve('a0'), 800);
+function audioFP() {
+  return new Promise(resolve => {
+    const to = setTimeout(() => resolve('a0'), 1200);
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) { clearTimeout(timeout); resolve('a0'); return; }
-      const ctx = new AudioCtx();
-      const oscillator = ctx.createOscillator();
-      const analyser = ctx.createAnalyser();
-      const gain = ctx.createGain();
-      gain.gain.value = 0;
-      oscillator.type = 'triangle';
-      oscillator.connect(analyser);
-      analyser.connect(gain);
-      gain.connect(ctx.destination);
-      oscillator.start(0);
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) { clearTimeout(to); resolve('a0'); return; }
+      const ctx = new AC();
+      const osc = ctx.createOscillator();
+      const an = ctx.createAnalyser();
+      const gn = ctx.createGain();
+      gn.gain.value = 0.0001;
+      osc.type = 'sawtooth';
+      osc.frequency.value = 10000;
+      osc.connect(an);
+      an.connect(gn);
+      gn.connect(ctx.destination);
+      osc.start(0);
       setTimeout(() => {
         try {
-          const data = new Float32Array(analyser.frequencyBinCount);
-          analyser.getFloatFrequencyData(data);
-          oscillator.stop();
+          const d = new Float32Array(an.frequencyBinCount);
+          an.getFloatFrequencyData(d);
+          let s = 0;
+          for (let i = 0; i < 40; i++) s += Math.abs(d[i] || 0);
+          osc.stop();
           ctx.close();
-          clearTimeout(timeout);
-          resolve(hashString(data.slice(0, 20).join(',')));
-        } catch(e) {
-          clearTimeout(timeout);
-          resolve('a0');
-        }
-      }, 100);
-    } catch(e) {
-      clearTimeout(timeout);
-      resolve('a0');
-    }
+          clearTimeout(to);
+          resolve(h(String(s) + d.slice(0, 15).join(',')));
+        } catch(e) { clearTimeout(to); resolve('a0'); }
+      }, 150);
+    } catch(e) { clearTimeout(to); resolve('a0'); }
   });
 }
 
-function getFontsFP() {
+function fontsFP() {
   try {
-    const fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Comic Sans MS', 'Impact'];
-    const test = document.createElement('span');
-    test.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
-    test.innerHTML = 'mmmmmmmmmmlli';
-    document.body.appendChild(test);
-    const defaultWidth = {};
-    ['monospace', 'sans-serif', 'serif'].forEach(f => {
-      test.style.fontFamily = f;
-      defaultWidth[f] = test.offsetWidth;
+    const list = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Trebuchet MS','Palatino','Garamond','Bookman','Arial Black'];
+    const span = document.createElement('span');
+    span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
+    span.textContent = 'mmmmmmmmmmlli';
+    document.body.appendChild(span);
+    const base = {};
+    ['monospace','sans-serif','serif'].forEach(f => {
+      span.style.fontFamily = f;
+      base[f] = span.offsetWidth;
     });
     const found = [];
-    fonts.forEach(font => {
-      let detected = false;
-      ['monospace', 'sans-serif', 'serif'].forEach(baseFont => {
-        test.style.fontFamily = font + ',' + baseFont;
-        if (test.offsetWidth !== defaultWidth[baseFont]) detected = true;
+    list.forEach(font => {
+      let ok = false;
+      ['monospace','sans-serif','serif'].forEach(b => {
+        span.style.fontFamily = "'" + font + "'," + b;
+        if (span.offsetWidth !== base[b]) ok = true;
       });
-      if (detected) found.push(font);
+      if (ok) found.push(font);
     });
-    document.body.removeChild(test);
-    return hashString(found.join(','));
+    document.body.removeChild(span);
+    return h(found.join(','));
   } catch(e) { return 'f0'; }
 }
 
-async function getIP() {
+async function ipFP() {
   try {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 2000);
-    const r = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
-    clearTimeout(t);
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 2500);
+    const r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
     const d = await r.json();
-    return d.ip || '0';
-  } catch(e) { return '0'; }
+    return d.ip || '0.0.0.0';
+  } catch(e) { return '0.0.0.0'; }
 }
 
-function getTelegramInfo() {
+function tgIntegrity() {
   try {
-    const u = (tg.initDataUnsafe) || {};
-    const platform = String(tg.platform || 'unknown');
+    const u = tg.initDataUnsafe || {};
+    const platform = String(tg.platform || '');
     const version = String(tg.version || '');
+    const color = String(tg.colorScheme || '');
     const hasUser = !!(u.user && u.user.id);
+    const hasAuth = !!(tg.initData && tg.initData.length > 10);
+    // Cloned / fake apps often miss initData or have weird platform
+    const official = ['android','ios','tdesktop','web','weba','macos','android_x','unigram'].indexOf(platform) >= 0;
     return {
-      platform: platform,
-      version: version,
-      hasUser: hasUser,
-      userId: hasUser ? u.user.id : 0
+      platform, version, color, hasUser, hasAuth, official,
+      uid: hasUser ? u.user.id : 0
     };
   } catch(e) {
-    return { platform: 'unknown', version: '', hasUser: false, userId: 0 };
+    return { platform: 'x', version: '', color: '', hasUser: false, hasAuth: false, official: false, uid: 0 };
   }
 }
 
-async function collectFullFingerprint() {
-  const status = document.getElementById('status');
-  const bar = document.getElementById('bar');
-
+async function run() {
+  const start = Date.now();
   try {
-    status.textContent = 'Checking canvas...';
-    bar.style.width = '12%';
-    const canvas = getCanvasFP();
-    await new Promise(r => setTimeout(r, 300));
+    setStatus('Scanning canvas signature...', 8);
+    await new Promise(r => setTimeout(r, 700));
+    const canvas = canvasFP();
+    addStep('Canvas fingerprint');
 
-    status.textContent = 'Checking GPU...';
-    bar.style.width = '25%';
-    const webgl = getWebGLFP();
-    await new Promise(r => setTimeout(r, 300));
+    setStatus('Analyzing GPU / WebGL...', 18);
+    await new Promise(r => setTimeout(r, 700));
+    const webgl = webglFP();
+    addStep('GPU / WebGL');
 
-    status.textContent = 'Checking audio...';
-    bar.style.width = '40%';
-    const audio = await getAudioFP();
-    await new Promise(r => setTimeout(r, 200));
+    setStatus('Checking audio hardware...', 30);
+    await new Promise(r => setTimeout(r, 600));
+    const audio = await audioFP();
+    addStep('Audio context');
 
-    status.textContent = 'Checking fonts...';
-    bar.style.width = '55%';
-    const fonts = getFontsFP();
-    await new Promise(r => setTimeout(r, 200));
+    setStatus('Detecting installed fonts...', 42);
+    await new Promise(r => setTimeout(r, 700));
+    const fonts = fontsFP();
+    addStep('Font signature');
 
-    status.textContent = 'Checking network...';
-    bar.style.width = '70%';
-    const ip = await getIP();
-    await new Promise(r => setTimeout(r, 200));
-
-    status.textContent = 'Checking Telegram...';
-    bar.style.width = '85%';
-    const tgInfo = getTelegramInfo();
-    await new Promise(r => setTimeout(r, 300));
-
-    status.textContent = 'Building fingerprint...';
-    bar.style.width = '95%';
-
-    const screenStr = (screen.width || 0) + 'x' + (screen.height || 0) + 'x' + (screen.colorDepth || 24);
-    let timezone = '';
-    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+    setStatus('Reading screen & hardware...', 55);
+    await new Promise(r => setTimeout(r, 700));
+    const screenS = (screen.width||0) + 'x' + (screen.height||0) + 'x' + (screen.colorDepth||24) + 'x' + (window.devicePixelRatio||1);
     const cores = navigator.hardwareConcurrency || 0;
-    const memory = navigator.deviceMemory || 0;
-    const lang = navigator.language || '';
-    const platform = navigator.platform || '';
+    const mem = navigator.deviceMemory || 0;
     const touch = navigator.maxTouchPoints || 0;
+    const lang = navigator.language || '';
+    const plat = navigator.platform || '';
+    let tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch(e) {}
+    addStep('Screen + CPU + Memory');
 
-    // Strong hardware-focused fingerprint
+    setStatus('Verifying network / IP...', 68);
+    await new Promise(r => setTimeout(r, 600));
+    const ip = await ipFP();
+    addStep('IP address');
+
+    setStatus('Checking real Telegram client...', 80);
+    await new Promise(r => setTimeout(r, 800));
+    const tgi = tgIntegrity();
+    addStep('Telegram integrity');
+
+    setStatus('Building hardware identity...', 90);
+    await new Promise(r => setTimeout(r, 600));
+
+    // Combined strong fingerprint (hardware primary, IP secondary)
     const raw = [
       canvas, webgl, audio, fonts,
-      screenStr, timezone, String(cores), String(memory),
-      lang, platform, String(touch),
-      tgInfo.platform, tgInfo.version
-    ].join('|');
+      screenS, String(cores), String(mem), String(touch),
+      lang, plat, tz,
+      tgi.platform, tgi.version, String(tgi.hasAuth), String(tgi.official)
+    ].join('||');
 
-    const fpHash = 'hw_' + hashString(raw) + '_' + hashString(canvas + webgl + audio).slice(0, 8);
+    const mainHash = h(raw);
+    const extra = h(canvas + webgl + audio + fonts).slice(0, 10);
+    const fp = 'hw_' + mainHash + '_' + extra;
 
-    status.textContent = 'Done!';
-    bar.style.width = '100%';
+    // Ensure minimum ~8 seconds total
+    const elapsed = Date.now() - start;
+    if (elapsed < 7800) {
+      setStatus('Finalizing security check...', 96);
+      await new Promise(r => setTimeout(r, 7800 - elapsed));
+    }
+
+    setStatus('Verification complete!', 100);
+    addStep('Identity locked');
     await new Promise(r => setTimeout(r, 400));
-
-    // Send to bot
-    tg.sendData(fpHash);
+    tg.sendData(fp);
   } catch (err) {
-    status.textContent = 'Error, sending basic fingerprint...';
-    // Fallback simple fingerprint so it never gets stuck
-    const fallback = 'hw_' + hashString(
+    setStatus('Recovering...', 95);
+    const fb = 'hw_' + h(
+      String(Date.now()) + '|' +
       (screen.width||0) + 'x' + (screen.height||0) + '|' +
       (navigator.language||'') + '|' +
       (navigator.platform||'') + '|' +
       (navigator.hardwareConcurrency||0)
     );
-    setTimeout(() => tg.sendData(fallback), 500);
+    setTimeout(() => tg.sendData(fb), 500);
   }
 }
 
-// Safety: force finish after 8 seconds no matter what
+// Hard timeout 12s
 setTimeout(() => {
-  const status = document.getElementById('status');
-  if (status && status.textContent !== 'Done!') {
-    status.textContent = 'Finishing...';
-    const fallback = 'hw_' + hashString(
-      Date.now() + '|' + (screen.width||0) + '|' + (navigator.language||'')
-    );
-    try { tg.sendData(fallback); } catch(e) {}
+  const st = document.getElementById('status');
+  if (st && st.textContent !== 'Verification complete!') {
+    st.textContent = 'Completing...';
+    try {
+      tg.sendData('hw_' + h(String(Date.now()) + '|' + (screen.width||0)));
+    } catch(e) {}
   }
-}, 8000);
+}, 12000);
 
-setTimeout(collectFullFingerprint, 600);
+setTimeout(run, 400);
 </script>
 </body>
 </html>
