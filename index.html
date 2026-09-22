@@ -1,317 +1,252 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Secure Device Verification</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      background: #0b0e11;
-      color: #ffffff;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .card {
-      background: #161b22;
-      border-radius: 20px;
-      padding: 32px 24px;
-      width: 100%;
-      max-width: 360px;
-      text-align: center;
-      box-shadow: 0 20px 40px rgba(0,0,0,0.45);
-      border: 1px solid #30363d;
-    }
-    .icon { font-size: 48px; margin-bottom: 16px; }
-    h1 { font-size: 22px; margin-bottom: 8px; font-weight: 700; }
-    .subtitle { color: #8b949e; font-size: 14px; line-height: 1.5; margin-bottom: 28px; }
-    .progress-container {
-      background: #21262d;
-      border-radius: 12px;
-      height: 12px;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
-    .progress-bar {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #238636, #2ea043);
-      border-radius: 12px;
-      transition: width 0.35s ease;
-    }
-    .status {
-      font-size: 13px;
-      color: #8b949e;
-      margin-bottom: 24px;
-      min-height: 20px;
-    }
-    .btn {
-      background: #238636;
-      color: white;
-      border: none;
-      width: 100%;
-      padding: 16px;
-      border-radius: 12px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .btn:disabled {
-      background: #21262d;
-      color: #8b949e;
-      cursor: not-allowed;
-    }
-    .secure-note {
-      margin-top: 20px;
-      font-size: 11px;
-      color: #6e7681;
-      line-height: 1.4;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Device Verification</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+  }
+  .card {
+    background: rgba(255,255,255,0.08);
+    border-radius: 20px;
+    padding: 30px 25px;
+    max-width: 340px;
+    width: 100%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+  h2 { margin: 0 0 10px; font-size: 22px; }
+  p { opacity: 0.8; font-size: 14px; line-height: 1.5; }
+  .progress {
+    width: 100%;
+    height: 8px;
+    background: rgba(255,255,255,0.15);
+    border-radius: 10px;
+    margin: 25px 0 15px;
+    overflow: hidden;
+  }
+  .bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00d2ff, #3a7bd5);
+    border-radius: 10px;
+    transition: width 0.3s;
+  }
+  .status { font-size: 13px; opacity: 0.7; min-height: 20px; }
+  .icon { font-size: 48px; margin-bottom: 15px; }
+</style>
 </head>
 <body>
-  <div class="card">
-    <div class="icon">🛡️</div>
-    <h1>Advanced Device Check</h1>
-    <p class="subtitle">
-      This security check detects cloned Telegram apps and multi-accounting.<br>
-      Process takes \~5–6 seconds.
-    </p>
+<div class="card">
+  <div class="icon">🛡️</div>
+  <h2>Device Security Check</h2>
+  <p>Verifying your device to prevent multi-accounting. This takes a few seconds.</p>
+  <div class="progress"><div class="bar" id="bar"></div></div>
+  <div class="status" id="status">Initializing...</div>
+</div>
 
-    <div class="progress-container">
-      <div class="progress-bar" id="progress"></div>
-    </div>
-    <div class="status" id="status">Waiting to start...</div>
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
 
-    <button class="btn" id="startBtn" onclick="startVerification()">Start Secure Verification</button>
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+}
 
-    <p class="secure-note">
-      Real users are never banned for same phone model.<br>
-      Only exact device signature + different account is blocked.
-    </p>
-  </div>
+async function getCanvasFP() {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 240; canvas.height = 60;
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#f60';
+    ctx.fillRect(10, 10, 100, 30);
+    ctx.fillStyle = '#069';
+    ctx.fillText('DeviceVerify@2026', 2, 15);
+    ctx.fillStyle = 'rgba(102,204,0,0.7)';
+    ctx.fillText('FlexiFlash', 4, 35);
+    return hashString(canvas.toDataURL());
+  } catch(e) { return 'c0'; }
+}
 
-  <script>
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-    tg.setHeaderColor('#0b0e11');
-    tg.setBackgroundColor('#0b0e11');
+async function getWebGLFP() {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (!gl) return 'w0';
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : '';
+    const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : '';
+    return hashString(vendor + '|' + renderer);
+  } catch(e) { return 'w0'; }
+}
 
-    // ========== Strong Fingerprint Functions ==========
-    function canvasFP() {
-      try {
-        const c = document.createElement('canvas');
-        c.width = 240; c.height = 60;
-        const ctx = c.getContext('2d');
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillStyle = '#f60';
-        ctx.fillRect(125, 1, 62, 20);
-        ctx.fillStyle = '#069';
-        ctx.font = '11pt Arial';
-        ctx.fillText('Cwm fjordbank glyphs vext quiz, 😃', 2, 15);
-        ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-        ctx.font = '18pt Arial';
-        ctx.fillText('Cwm fjordbank glyphs vext quiz, 😃', 4, 45);
-        return c.toDataURL().slice(-64);
-      } catch (e) { return 'canvas_fail'; }
-    }
-
-    function webglFP() {
-      try {
-        const c = document.createElement('canvas');
-        const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-        if (!gl) return 'no_webgl';
-        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-        const vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : '';
-        const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
-        return (vendor + '|' + renderer).slice(0, 90);
-      } catch (e) { return 'webgl_fail'; }
-    }
-
-    function audioFP() {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const analyser = ctx.createAnalyser();
-        const gain = ctx.createGain();
-        gain.gain.value = 0;
-        osc.type = 'triangle';
-        osc.connect(analyser);
-        analyser.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(0);
-        const arr = new Float32Array(analyser.frequencyBinCount);
-        analyser.getFloatFrequencyData(arr);
-        osc.stop();
+async function getAudioFP() {
+  return new Promise(resolve => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = ctx.createOscillator();
+      const analyser = ctx.createAnalyser();
+      const gain = ctx.createGain();
+      const scriptProcessor = ctx.createScriptProcessor(4096, 1, 1);
+      gain.gain.value = 0;
+      oscillator.type = 'triangle';
+      oscillator.connect(analyser);
+      analyser.connect(scriptProcessor);
+      scriptProcessor.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start(0);
+      scriptProcessor.onaudioprocess = function(e) {
+        const data = new Float32Array(analyser.frequencyBinCount);
+        analyser.getFloatFrequencyData(data);
+        oscillator.stop();
+        scriptProcessor.disconnect();
         ctx.close();
-        return Array.from(arr.slice(0, 25)).map(v => v.toFixed(2)).join(',');
-      } catch (e) { return 'audio_fail'; }
-    }
-
-    function fontsFP() {
-      const baseFonts = ['monospace', 'sans-serif', 'serif'];
-      const testFonts = [
-        'Arial', 'Arial Black', 'Comic Sans MS', 'Courier New', 'Georgia',
-        'Impact', 'Times New Roman', 'Trebuchet MS', 'Verdana',
-        'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro', 'Noto Sans'
-      ];
-      const detected = [];
-      const span = document.createElement('span');
-      span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
-      span.innerHTML = 'mmmmmmmmmmlli';
-      document.body.appendChild(span);
-
-      const baseWidth = {};
-      baseFonts.forEach(b => {
-        span.style.fontFamily = b;
-        baseWidth[b] = span.offsetWidth;
-      });
-
-      testFonts.forEach(f => {
-        let matched = false;
-        baseFonts.forEach(b => {
-          span.style.fontFamily = `'\( {f}', \){b}`;
-          if (span.offsetWidth !== baseWidth[b]) matched = true;
-        });
-        if (matched) detected.push(f);
-      });
-      document.body.removeChild(span);
-      return detected.join(',');
-    }
-
-    function hashString(str) {
-      let h = 2166136261;
-      for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-      }
-      return (h >>> 0).toString(16);
-    }
-
-    // Detect cloned / modified Telegram apps
-    function telegramIntegrityCheck() {
-      const issues = [];
-
-      if (!window.Telegram || !window.Telegram.WebApp) {
-        issues.push('no_tg_object');
-      }
-      if (!tg.initData || tg.initData.length < 50) {
-        issues.push('weak_initdata');
-      }
-      if (!tg.initDataUnsafe || !tg.initDataUnsafe.user) {
-        issues.push('no_user_data');
-      }
-
-      const validPlatforms = ['android', 'ios', 'tdesktop', 'macos', 'web', 'weba', 'webk', 'unigram', 'android_x'];
-      if (tg.platform && !validPlatforms.includes(tg.platform.toLowerCase())) {
-        issues.push('unknown_platform');
-      }
-      if (!tg.version || tg.version.length < 3) {
-        issues.push('no_version');
-      }
-      if (!tg.colorScheme) {
-        issues.push('no_colorscheme');
-      }
-
-      return {
-        ok: issues.length === 0,
-        issues: issues.join(',')
+        resolve(hashString(data.slice(0, 30).join(',')));
       };
-    }
+      setTimeout(() => resolve('a0'), 500);
+    } catch(e) { resolve('a0'); }
+  });
+}
 
-    // Get public IP (with timeout)
-    async function getPublicIP() {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 1800);
-        const res = await fetch('https://api.ipify.org?format=json', { signal: controller.signal });
-        clearTimeout(timeout);
-        const data = await res.json();
-        return data.ip || 'ip_fail';
-      } catch (e) {
-        return 'ip_timeout';
-      }
-    }
+function getFontsFP() {
+  const fonts = ['Arial', 'Verdana', 'Times New Roman', 'Courier New', 'Georgia', 'Palatino', 'Garamond', 'Comic Sans MS', 'Trebuchet MS', 'Impact'];
+  const base = [];
+  const test = document.createElement('span');
+  test.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
+  test.innerHTML = 'mmmmmmmmmmlli';
+  document.body.appendChild(test);
+  const defaultWidth = {};
+  ['monospace', 'sans-serif', 'serif'].forEach(f => {
+    test.style.fontFamily = f;
+    defaultWidth[f] = test.offsetWidth;
+  });
+  fonts.forEach(font => {
+    let detected = false;
+    ['monospace', 'sans-serif', 'serif'].forEach(baseFont => {
+      test.style.fontFamily = font + ',' + baseFont;
+      if (test.offsetWidth !== defaultWidth[baseFont]) detected = true;
+    });
+    if (detected) base.push(font);
+  });
+  document.body.removeChild(test);
+  return hashString(base.join(','));
+}
 
-    async function collectFullFingerprint() {
-      const user = tg.initDataUnsafe?.user || {};
-      const integrity = telegramIntegrityCheck();
-      const ip = await getPublicIP();
+async function getIP() {
+  try {
+    const r = await fetch('https://api.ipify.org?format=json');
+    const d = await r.json();
+    return d.ip || '0';
+  } catch(e) { return '0'; }
+}
 
-      const parts = [
-        integrity.ok ? 'tg_ok' : 'tg_suspicious',
-        integrity.issues,
-        tg.platform || '',
-        tg.version || '',
-        tg.colorScheme || '',
-        navigator.userAgent || '',
-        navigator.language || '',
-        (navigator.languages || []).join(','),
-        screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
-        window.devicePixelRatio || 1,
-        new Date().getTimezoneOffset(),
-        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-        navigator.hardwareConcurrency || 0,
-        navigator.deviceMemory || 0,
-        navigator.maxTouchPoints || 0,
-        ('ontouchstart' in window) ? 1 : 0,
-        canvasFP(),
-        webglFP(),
-        audioFP(),
-        fontsFP(),
-        ip,
-        user.id || 0,
-        user.language_code || ''
-      ];
+function getTelegramIntegrity() {
+  try {
+    const u = tg.initDataUnsafe || {};
+    const platform = tg.platform || '';
+    const version = tg.version || '';
+    const colorScheme = tg.colorScheme || '';
+    // Cloned apps often have incomplete initData or strange platform
+    const hasUser = !!(u.user && u.user.id);
+    const isOfficial = platform === 'android' || platform === 'ios' || platform === 'tdesktop' || platform === 'web' || platform === 'weba' || platform === 'macos';
+    return {
+      hasUser,
+      platform,
+      version,
+      colorScheme,
+      isOfficial,
+      userId: hasUser ? u.user.id : 0
+    };
+  } catch(e) {
+    return { hasUser: false, platform: 'unknown', version: '', colorScheme: '', isOfficial: false, userId: 0 };
+  }
+}
 
-      const raw = parts.join('||');
-      const shortHash = hashString(raw);
-      return 'hw_' + shortHash + '_' + (user.id || '0');
-    }
+async function collectFullFingerprint() {
+  const status = document.getElementById('status');
+  const bar = document.getElementById('bar');
 
-    // ========== 5-6 Second Verification Flow ==========
-    async function startVerification() {
-      const btn = document.getElementById('startBtn');
-      const progress = document.getElementById('progress');
-      const status = document.getElementById('status');
+  status.textContent = 'Checking canvas...';
+  bar.style.width = '15%';
+  const canvas = await getCanvasFP();
+  await new Promise(r => setTimeout(r, 400));
 
-      btn.disabled = true;
-      btn.innerText = 'Verifying...';
+  status.textContent = 'Checking GPU...';
+  bar.style.width = '30%';
+  const webgl = await getWebGLFP();
+  await new Promise(r => setTimeout(r, 400));
 
-      const stages = [
-        { p: 12, t: 'Checking Telegram client integrity...' },
-        { p: 28, t: 'Reading canvas & WebGL signature...' },
-        { p: 45, t: 'Analyzing audio & fonts...' },
-        { p: 62, t: 'Collecting hardware profile...' },
-        { p: 78, t: 'Checking network environment...' },
-        { p: 92, t: 'Building secure device ID...' },
-        { p: 100, t: 'Sending result to bot...' }
-      ];
+  status.textContent = 'Checking audio...';
+  bar.style.width = '45%';
+  const audio = await getAudioFP();
+  await new Promise(r => setTimeout(r, 400));
 
-      for (let i = 0; i < stages.length; i++) {
-        progress.style.width = stages[i].p + '%';
-        status.innerText = stages[i].t;
-        await new Promise(r => setTimeout(r, 780));
-      }
+  status.textContent = 'Checking fonts...';
+  bar.style.width = '60%';
+  const fonts = getFontsFP();
+  await new Promise(r => setTimeout(r, 300));
 
-      try {
-        const fingerprint = await collectFullFingerprint();
-        status.innerText = '✅ Verification successful!';
-        tg.sendData(fingerprint);
-        setTimeout(() => tg.close(), 1000);
-      } catch (err) {
-        status.innerText = 'Verification failed. Please try again.';
-        btn.disabled = false;
-        btn.innerText = 'Retry Verification';
-        progress.style.width = '0%';
-      }
-    }
-  </script>
+  status.textContent = 'Checking network...';
+  bar.style.width = '75%';
+  const ip = await getIP();
+  await new Promise(r => setTimeout(r, 400));
+
+  status.textContent = 'Checking Telegram integrity...';
+  bar.style.width = '90%';
+  const tgInfo = getTelegramIntegrity();
+  await new Promise(r => setTimeout(r, 500));
+
+  // Hardware signals
+  const screen = screen.width + 'x' + screen.height + 'x' + (screen.colorDepth || 24);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const cores = navigator.hardwareConcurrency || 0;
+  const memory = navigator.deviceMemory || 0;
+  const lang = navigator.language || '';
+  const platform = navigator.platform || '';
+  const touch = navigator.maxTouchPoints || 0;
+
+  // Build strong fingerprint (hardware focused, IP is secondary)
+  // Real users with same phone model will have very similar but not identical fingerprints
+  // because of canvas + audio noise + fonts
+  const raw = [
+    canvas, webgl, audio, fonts,
+    screen, timezone, cores, memory, lang, platform, touch,
+    tgInfo.platform, tgInfo.version
+  ].join('|');
+
+  const fpHash = 'hw_' + hashString(raw) + '_' + hashString(canvas + webgl + audio).slice(0, 8);
+
+  status.textContent = 'Finalizing...';
+  bar.style.width = '100%';
+  await new Promise(r => setTimeout(r, 600));
+
+  // Send to bot
+  tg.sendData(fpHash);
+}
+
+// Start after short delay
+setTimeout(collectFullFingerprint, 800);
+</script>
 </body>
 </html>
