@@ -27,8 +27,7 @@
 </div>
 <script>
 const tg = window.Telegram.WebApp;
-tg.ready();
-tg.expand();
+try { tg.ready(); tg.expand(); } catch (e) {}
 
 function h(s) {
   let x = 2166136261;
@@ -58,8 +57,9 @@ function getWebGL() {
     const maxV = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) || 0;
     const maxR = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
     return {
-      raw: vendor + '|' + renderer + '|' + version + '|' + shading + '|' + maxTex + '|' + maxV + '|' + maxR,
-      vendor: vendor, renderer: renderer
+      raw: [vendor, renderer, version, shading, maxTex, maxV, maxR].join('|'),
+      vendor: vendor,
+      renderer: renderer
     };
   } catch (e) {
     return { raw: 'w0', vendor: '', renderer: '' };
@@ -114,13 +114,17 @@ function getFonts() {
 }
 
 function getScreen() {
-  return [screen.width||0,screen.height||0,screen.availWidth||0,screen.availHeight||0,screen.colorDepth||24,window.devicePixelRatio||1].join('x');
+  return [screen.width||0, screen.height||0, screen.availWidth||0, screen.availHeight||0, screen.colorDepth||24, window.devicePixelRatio||1].join('x');
 }
 
 function getCPU() {
   return [
-    navigator.hardwareConcurrency||0, navigator.deviceMemory||0, navigator.maxTouchPoints||0,
-    navigator.platform||'', navigator.language||'', (navigator.languages||[]).slice(0,3).join(',')
+    navigator.hardwareConcurrency||0,
+    navigator.deviceMemory||0,
+    navigator.maxTouchPoints||0,
+    navigator.platform||'',
+    navigator.language||'',
+    (navigator.languages||[]).slice(0,3).join(',')
   ].join('|');
 }
 
@@ -134,17 +138,17 @@ function getTGUser() {
     const u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
     return {
       id: u.id ? String(u.id) : '',
-      platform: String(tg.platform || ''),
-      hasInit: !!(tg.initData && String(tg.initData).length > 20)
+      platform: String(tg.platform || '')
     };
   } catch (e) {
-    return { id: '', platform: '', hasInit: false };
+    return { id: '', platform: '' };
   }
 }
 
+/* Only clear software/emulator GPUs — not real phones */
 function isEmulator(renderer, vendor) {
   const r = (renderer + ' ' + vendor).toLowerCase();
-  const bad = ['swiftshader','llvmpipe','virtualbox','vmware','microsoft basic render','softgl','mesa offscreen','google swiftshader','android emulator','genymotion','bluestacks','nox'];
+  const bad = ['swiftshader', 'llvmpipe', 'virtualbox', 'vmware svga', 'microsoft basic render driver', 'softgl', 'mesa offscreen'];
   for (let i = 0; i < bad.length; i++) {
     if (r.indexOf(bad[i]) !== -1) return true;
   }
@@ -154,120 +158,126 @@ function isEmulator(renderer, vendor) {
 async function getNetInfo() {
   var ip = '0';
   var vpn = false;
+  // Primary IP
   try {
     var ctrl = new AbortController();
-    setTimeout(function () { ctrl.abort(); }, 4500);
-    var r = await fetch('https://ipapi.co/json/', { signal: ctrl.signal });
+    setTimeout(function () { ctrl.abort(); }, 4000);
+    var r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
     var d = await r.json();
     if (d && d.ip) ip = String(d.ip);
-    // ipapi free may expose org/asn - treat hosting/datacenter keywords as VPN-like
-    var org = String(d.org || d.asn || d.org_name || '').toLowerCase();
-    var hostHints = ['hosting','cloud','amazon','digitalocean','ovh','hetzner','vultr','linode','google cloud','microsoft','azure','proxy','vpn','datacenter','colo'];
-    for (var i = 0; i < hostHints.length; i++) {
-      if (org.indexOf(hostHints[i]) !== -1) { vpn = true; break; }
-    }
   } catch (e) {
     try {
-      var r2 = await fetch('https://api.ipify.org?format=json');
+      var r2 = await fetch('https://api64.ipify.org?format=json');
       var d2 = await r2.json();
       if (d2 && d2.ip) ip = String(d2.ip);
     } catch (e2) {}
   }
-  // Secondary VPN check
-  if (!vpn && ip && ip !== '0') {
+  // VPN only if explicit security flags — avoid false positives on mobile/carrier
+  if (ip && ip !== '0') {
     try {
-      var ctrl2 = new AbortController();
-      setTimeout(function () { ctrl2.abort(); }, 3500);
-      var r3 = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrl2.signal });
+      var ctrl3 = new AbortController();
+      setTimeout(function () { ctrl3.abort(); }, 4000);
+      var r3 = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrl3.signal });
       var d3 = await r3.json();
-      if (d3 && d3.security) {
-        if (d3.security.vpn || d3.security.proxy || d3.security.tor || d3.security.hosting) vpn = true;
+      if (d3 && d3.success !== false && d3.security) {
+        if (d3.security.vpn === true || d3.security.proxy === true || d3.security.tor === true) {
+          vpn = true;
+        }
       }
     } catch (e3) {}
   }
   return { ip: ip, vpn: vpn };
 }
 
+function sendOk(payload) {
+  setStatus('Done.', 100);
+  setTimeout(function () {
+    try { tg.sendData(payload); } catch (e) {}
+  }, 400);
+}
+
 async function run() {
   var t0 = Date.now();
   try {
-    setStatus('Please wait...', 8);
-    await new Promise(function (r) { setTimeout(r, 900); });
+    setStatus('Please wait...', 10);
+    await new Promise(function (r) { setTimeout(r, 1000); });
     var webgl = getWebGL();
 
     if (isEmulator(webgl.renderer, webgl.vendor)) {
       setStatus('Verification failed.', 100);
-      setTimeout(function () { tg.sendData('ban_emu'); }, 600);
+      setTimeout(function () { try { tg.sendData('ban_emu'); } catch (e) {} }, 500);
       return;
     }
 
-    setStatus('Please wait...', 20);
-    await new Promise(function (r) { setTimeout(r, 900); });
+    setStatus('Please wait...', 25);
+    await new Promise(function (r) { setTimeout(r, 1000); });
     var canvas = getCanvas();
 
-    setStatus('Please wait...', 32);
-    await new Promise(function (r) { setTimeout(r, 850); });
+    setStatus('Please wait...', 40);
+    await new Promise(function (r) { setTimeout(r, 900); });
     var fonts = getFonts();
-
-    setStatus('Please wait...', 44);
-    await new Promise(function (r) { setTimeout(r, 800); });
     var scr = getScreen();
     var cpu = getCPU();
 
-    setStatus('Please wait...', 56);
-    await new Promise(function (r) { setTimeout(r, 800); });
+    setStatus('Please wait...', 55);
+    await new Promise(function (r) { setTimeout(r, 900); });
     var tgUser = getTGUser();
-    if (!tgUser.id || !tgUser.hasInit) {
-      setStatus('Verification failed.', 100);
-      setTimeout(function () { tg.sendData('ban_client'); }, 600);
-      return;
-    }
 
     setStatus('Please wait...', 70);
-    await new Promise(function (r) { setTimeout(r, 700); });
+    await new Promise(function (r) { setTimeout(r, 800); });
     var net = await getNetInfo();
 
     if (net.vpn) {
       setStatus('Verification failed.', 100);
-      setTimeout(function () { tg.sendData('ban_vpn'); }, 600);
+      setTimeout(function () { try { tg.sendData('ban_vpn'); } catch (e) {} }, 500);
       return;
     }
 
-    setStatus('Please wait...', 88);
-    await new Promise(function (r) { setTimeout(r, 700); });
+    setStatus('Please wait...', 90);
+    await new Promise(function (r) { setTimeout(r, 800); });
 
     var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgUser.platform].join('||');
     var fpHash = h(raw);
-    var payload = 'hw_' + fpHash + '|uid=' + tgUser.id + '|ip=' + net.ip;
+    var uidPart = tgUser.id ? ('|uid=' + tgUser.id) : '';
+    var ipPart = '|ip=' + (net.ip || '0');
+    var payload = 'hw_' + fpHash + uidPart + ipPart;
 
     var elapsed = Date.now() - t0;
     if (elapsed < 10000) {
-      setStatus('Please wait...', 95);
       await new Promise(function (r) { setTimeout(r, 10000 - elapsed); });
     }
-
-    setStatus('Done.', 100);
-    await new Promise(function (r) { setTimeout(r, 500); });
-    tg.sendData(payload);
+    sendOk(payload);
   } catch (err) {
-    setStatus('Please wait...', 98);
+    // Always try to complete with best-effort unique hardware payload
     var tgUser = getTGUser();
-    var fb = 'hw_' + h(String(screen.width)+'x'+String(screen.height)) + '|uid=' + (tgUser.id||'0') + '|ip=0';
-    setTimeout(function () { try { tg.sendData(fb); } catch (e) {} }, 400);
+    var fb = 'hw_' + h([
+      String(screen.width || 0),
+      String(screen.height || 0),
+      String(navigator.hardwareConcurrency || 0),
+      String(navigator.platform || ''),
+      String(window.devicePixelRatio || 1)
+    ].join('|'));
+    if (tgUser.id) fb += '|uid=' + tgUser.id;
+    fb += '|ip=0';
+    sendOk(fb);
   }
 }
 
+// Safety timeout: still send unique-ish payload so real users are not stuck on "failed"
 setTimeout(function () {
   var st = document.getElementById('status');
   if (st && st.textContent.indexOf('Done') === -1 && st.textContent.indexOf('failed') === -1) {
     try {
       var tgUser = getTGUser();
-      tg.sendData('hw_' + h(String(screen.width)+'x'+String(screen.height)) + '|uid=' + (tgUser.id||'0') + '|ip=0');
+      var fb = 'hw_' + h(String(screen.width) + 'x' + String(screen.height) + 'x' + String(navigator.hardwareConcurrency || 0));
+      if (tgUser.id) fb += '|uid=' + tgUser.id;
+      fb += '|ip=0';
+      tg.sendData(fb);
     } catch (e) {}
   }
-}, 14000);
+}, 15000);
 
-setTimeout(run, 500);
+setTimeout(run, 400);
 </script>
 </body>
 </html>
