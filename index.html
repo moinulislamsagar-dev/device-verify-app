@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Device Verification</title>
+<title>Security Check</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
@@ -13,19 +13,17 @@
   h2{font-size:19px;margin-bottom:6px}
   .sub{opacity:.72;font-size:12.5px;line-height:1.45}
   .progress{width:100%;height:10px;background:rgba(255,255,255,.12);border-radius:20px;margin:20px 0 10px;overflow:hidden}
-  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .35s ease}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .4s ease}
   .status{font-size:12px;opacity:.75;min-height:18px}
-  .steps{text-align:left;margin-top:14px;font-size:11px;opacity:.5;line-height:1.65}
 </style>
 </head>
 <body>
 <div class="card">
   <div class="icon">🛡️</div>
-  <h2>Hardware Device Lock</h2>
-  <p class="sub">GPU + Canvas + Fonts + Screen + CPU. <b>IP is NOT used for identity.</b> Same phone always same ID.</p>
+  <h2>Security Verification</h2>
+  <p class="sub">Please wait while we verify your session. This may take a few seconds.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
-  <div class="status" id="status">Starting hardware scan...</div>
-  <div class="steps" id="steps"></div>
+  <div class="status" id="status">Please wait...</div>
 </div>
 <script>
 const tg = window.Telegram.WebApp;
@@ -45,17 +43,12 @@ function setStatus(t, p) {
   document.getElementById('status').textContent = t;
   document.getElementById('bar').style.width = p + '%';
 }
-function addStep(t) {
-  document.getElementById('steps').innerHTML += '✓ ' + t + '<br>';
-}
-
-/* ===== HARDWARE ONLY - NO IP IN DEVICE ID ===== */
 
 function getWebGL() {
   try {
     const c = document.createElement('canvas');
     const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-    if (!gl) return 'w0';
+    if (!gl) return { raw: 'w0', vendor: '', renderer: '' };
     const di = gl.getExtension('WEBGL_debug_renderer_info');
     const vendor = di ? String(gl.getParameter(di.UNMASKED_VENDOR_WEBGL) || '') : '';
     const renderer = di ? String(gl.getParameter(di.UNMASKED_RENDERER_WEBGL) || '') : '';
@@ -64,8 +57,13 @@ function getWebGL() {
     const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
     const maxV = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) || 0;
     const maxR = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
-    return vendor + '|' + renderer + '|' + version + '|' + shading + '|' + maxTex + '|' + maxV + '|' + maxR;
-  } catch (e) { return 'w0'; }
+    return {
+      raw: vendor + '|' + renderer + '|' + version + '|' + shading + '|' + maxTex + '|' + maxV + '|' + maxR,
+      vendor: vendor, renderer: renderer
+    };
+  } catch (e) {
+    return { raw: 'w0', vendor: '', renderer: '' };
+  }
 }
 
 function getCanvas() {
@@ -78,7 +76,7 @@ function getCanvas() {
     ctx.fillStyle = '#f60';
     ctx.fillRect(10, 5, 100, 30);
     ctx.fillStyle = '#069';
-    ctx.fillText('HW-DEVICE-LOCK', 12, 12);
+    ctx.fillText('SEC-CHECK', 12, 12);
     ctx.fillStyle = 'rgba(50,200,50,0.7)';
     ctx.font = '11px Times New Roman';
     ctx.fillText('AaBbCc 012345', 12, 38);
@@ -116,132 +114,160 @@ function getFonts() {
 }
 
 function getScreen() {
-  return [
-    screen.width || 0,
-    screen.height || 0,
-    screen.availWidth || 0,
-    screen.availHeight || 0,
-    screen.colorDepth || 24,
-    screen.pixelDepth || 24,
-    window.devicePixelRatio || 1
-  ].join('x');
+  return [screen.width||0,screen.height||0,screen.availWidth||0,screen.availHeight||0,screen.colorDepth||24,window.devicePixelRatio||1].join('x');
 }
 
 function getCPU() {
   return [
-    navigator.hardwareConcurrency || 0,
-    navigator.deviceMemory || 0,
-    navigator.maxTouchPoints || 0,
-    navigator.platform || '',
-    navigator.language || '',
-    (navigator.languages || []).slice(0, 3).join(',')
+    navigator.hardwareConcurrency||0, navigator.deviceMemory||0, navigator.maxTouchPoints||0,
+    navigator.platform||'', navigator.language||'', (navigator.languages||[]).slice(0,3).join(',')
   ].join('|');
 }
 
 function getTZ() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-  } catch (e) { return ''; }
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }
+  catch (e) { return ''; }
 }
 
-function getTG() {
+function getTGUser() {
   try {
-    return String(tg.platform || '') + '|' + String(tg.version || '');
-  } catch (e) { return ''; }
+    const u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
+    return {
+      id: u.id ? String(u.id) : '',
+      platform: String(tg.platform || ''),
+      hasInit: !!(tg.initData && String(tg.initData).length > 20)
+    };
+  } catch (e) {
+    return { id: '', platform: '', hasInit: false };
+  }
+}
+
+function isEmulator(renderer, vendor) {
+  const r = (renderer + ' ' + vendor).toLowerCase();
+  const bad = ['swiftshader','llvmpipe','virtualbox','vmware','microsoft basic render','softgl','mesa offscreen','google swiftshader','android emulator','genymotion','bluestacks','nox'];
+  for (let i = 0; i < bad.length; i++) {
+    if (r.indexOf(bad[i]) !== -1) return true;
+  }
+  return false;
+}
+
+async function getNetInfo() {
+  var ip = '0';
+  var vpn = false;
+  try {
+    var ctrl = new AbortController();
+    setTimeout(function () { ctrl.abort(); }, 4500);
+    var r = await fetch('https://ipapi.co/json/', { signal: ctrl.signal });
+    var d = await r.json();
+    if (d && d.ip) ip = String(d.ip);
+    // ipapi free may expose org/asn - treat hosting/datacenter keywords as VPN-like
+    var org = String(d.org || d.asn || d.org_name || '').toLowerCase();
+    var hostHints = ['hosting','cloud','amazon','digitalocean','ovh','hetzner','vultr','linode','google cloud','microsoft','azure','proxy','vpn','datacenter','colo'];
+    for (var i = 0; i < hostHints.length; i++) {
+      if (org.indexOf(hostHints[i]) !== -1) { vpn = true; break; }
+    }
+  } catch (e) {
+    try {
+      var r2 = await fetch('https://api.ipify.org?format=json');
+      var d2 = await r2.json();
+      if (d2 && d2.ip) ip = String(d2.ip);
+    } catch (e2) {}
+  }
+  // Secondary VPN check
+  if (!vpn && ip && ip !== '0') {
+    try {
+      var ctrl2 = new AbortController();
+      setTimeout(function () { ctrl2.abort(); }, 3500);
+      var r3 = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrl2.signal });
+      var d3 = await r3.json();
+      if (d3 && d3.security) {
+        if (d3.security.vpn || d3.security.proxy || d3.security.tor || d3.security.hosting) vpn = true;
+      }
+    } catch (e3) {}
+  }
+  return { ip: ip, vpn: vpn };
 }
 
 async function run() {
-  const t0 = Date.now();
+  var t0 = Date.now();
   try {
-    setStatus('Reading GPU / WebGL...', 12);
-    await new Promise(function (r) { setTimeout(r, 800); });
-    const webgl = getWebGL();
-    addStep('GPU / WebGL renderer');
+    setStatus('Please wait...', 8);
+    await new Promise(function (r) { setTimeout(r, 900); });
+    var webgl = getWebGL();
 
-    setStatus('Canvas rendering signature...', 26);
-    await new Promise(function (r) { setTimeout(r, 800); });
-    const canvas = getCanvas();
-    addStep('Canvas signature');
-
-    setStatus('Installed fonts...', 40);
-    await new Promise(function (r) { setTimeout(r, 750); });
-    const fonts = getFonts();
-    addStep('Font set');
-
-    setStatus('Screen hardware...', 54);
-    await new Promise(function (r) { setTimeout(r, 650); });
-    const scr = getScreen();
-    addStep('Screen metrics');
-
-    setStatus('CPU / Memory / Touch...', 68);
-    await new Promise(function (r) { setTimeout(r, 650); });
-    const cpu = getCPU();
-    addStep('CPU + Memory');
-
-    setStatus('Timezone + client...', 82);
-    await new Promise(function (r) { setTimeout(r, 600); });
-    const tz = getTZ();
-    const tgs = getTG();
-    addStep('Timezone + Telegram');
-
-    setStatus('Building hardware ID...', 92);
-    await new Promise(function (r) { setTimeout(r, 500); });
-
-    // *** DEVICE ID = HARDWARE ONLY ***
-    // IP is intentionally NOT included
-    // Changing IP will NOT change this ID
-    const raw = [
-      webgl,
-      h(canvas),
-      fonts,
-      scr,
-      cpu,
-      tz,
-      tgs
-    ].join('||');
-
-    const fp = 'hw_' + h(raw);
-
-    const elapsed = Date.now() - t0;
-    if (elapsed < 7800) {
-      setStatus('Locking device...', 97);
-      await new Promise(function (r) { setTimeout(r, 7800 - elapsed); });
+    if (isEmulator(webgl.renderer, webgl.vendor)) {
+      setStatus('Verification failed.', 100);
+      setTimeout(function () { tg.sendData('ban_emu'); }, 600);
+      return;
     }
 
-    setStatus('Hardware ID locked!', 100);
-    addStep('ID ready (no IP)');
-    await new Promise(function (r) { setTimeout(r, 400); });
+    setStatus('Please wait...', 20);
+    await new Promise(function (r) { setTimeout(r, 900); });
+    var canvas = getCanvas();
 
-    tg.sendData(fp);
+    setStatus('Please wait...', 32);
+    await new Promise(function (r) { setTimeout(r, 850); });
+    var fonts = getFonts();
+
+    setStatus('Please wait...', 44);
+    await new Promise(function (r) { setTimeout(r, 800); });
+    var scr = getScreen();
+    var cpu = getCPU();
+
+    setStatus('Please wait...', 56);
+    await new Promise(function (r) { setTimeout(r, 800); });
+    var tgUser = getTGUser();
+    if (!tgUser.id || !tgUser.hasInit) {
+      setStatus('Verification failed.', 100);
+      setTimeout(function () { tg.sendData('ban_client'); }, 600);
+      return;
+    }
+
+    setStatus('Please wait...', 70);
+    await new Promise(function (r) { setTimeout(r, 700); });
+    var net = await getNetInfo();
+
+    if (net.vpn) {
+      setStatus('Verification failed.', 100);
+      setTimeout(function () { tg.sendData('ban_vpn'); }, 600);
+      return;
+    }
+
+    setStatus('Please wait...', 88);
+    await new Promise(function (r) { setTimeout(r, 700); });
+
+    var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgUser.platform].join('||');
+    var fpHash = h(raw);
+    var payload = 'hw_' + fpHash + '|uid=' + tgUser.id + '|ip=' + net.ip;
+
+    var elapsed = Date.now() - t0;
+    if (elapsed < 10000) {
+      setStatus('Please wait...', 95);
+      await new Promise(function (r) { setTimeout(r, 10000 - elapsed); });
+    }
+
+    setStatus('Done.', 100);
+    await new Promise(function (r) { setTimeout(r, 500); });
+    tg.sendData(payload);
   } catch (err) {
-    setStatus('Completing...', 98);
-    const fb = 'hw_' + h([
-      String(screen.width || 0),
-      String(screen.height || 0),
-      String(navigator.hardwareConcurrency || 0),
-      String(navigator.platform || ''),
-      String(navigator.language || ''),
-      String(window.devicePixelRatio || 1)
-    ].join('|'));
-    setTimeout(function () { try { tg.sendData(fb); } catch (e) {} }, 300);
+    setStatus('Please wait...', 98);
+    var tgUser = getTGUser();
+    var fb = 'hw_' + h(String(screen.width)+'x'+String(screen.height)) + '|uid=' + (tgUser.id||'0') + '|ip=0';
+    setTimeout(function () { try { tg.sendData(fb); } catch (e) {} }, 400);
   }
 }
 
 setTimeout(function () {
-  const st = document.getElementById('status');
-  if (st && st.textContent.indexOf('locked') === -1) {
+  var st = document.getElementById('status');
+  if (st && st.textContent.indexOf('Done') === -1 && st.textContent.indexOf('failed') === -1) {
     try {
-      tg.sendData('hw_' + h([
-        String(screen.width || 0),
-        String(screen.height || 0),
-        String(navigator.hardwareConcurrency || 0),
-        String(navigator.platform || '')
-      ].join('|')));
+      var tgUser = getTGUser();
+      tg.sendData('hw_' + h(String(screen.width)+'x'+String(screen.height)) + '|uid=' + (tgUser.id||'0') + '|ip=0');
     } catch (e) {}
   }
-}, 12000);
+}, 14000);
 
-setTimeout(run, 400);
+setTimeout(run, 500);
 </script>
 </body>
 </html>
