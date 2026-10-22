@@ -48,6 +48,44 @@ function setStatus(t, p) {
   document.getElementById('bar').style.width = Math.min(100, p) + '%';
 }
 
+function sleep(ms) {
+  return new Promise(function (r) { setTimeout(r, ms); });
+}
+
+/* Wait until Telegram injects initData / user (can be delayed after ready()) */
+async function waitTelegramSession(maxMs) {
+  var t0 = Date.now();
+  while (Date.now() - t0 < maxMs) {
+    try {
+      var initStr = String(tg.initData || '');
+      var user = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : null;
+      if (initStr.length > 10 || (user && user.id)) {
+        return true;
+      }
+    } catch (e) {}
+    await sleep(150);
+  }
+  return false;
+}
+
+function getTG() {
+  try {
+    var u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
+    var initStr = String(tg.initData || '');
+    var authDate = (tg.initDataUnsafe && tg.initDataUnsafe.auth_date) ? String(tg.initDataUnsafe.auth_date) : '';
+    // init=1 if signed string OR at least Telegram user object present (WebApp context)
+    var hasInit = (initStr.length > 10) ? 1 : ((u && u.id) ? 1 : 0);
+    return {
+      id: u.id ? String(u.id) : '',
+      platform: String(tg.platform || ''),
+      hasInit: hasInit,
+      authDate: authDate
+    };
+  } catch (e) {
+    return { id: '', platform: '', hasInit: 0, authDate: '' };
+  }
+}
+
 function getWebGL() {
   try {
     var c = document.createElement('canvas');
@@ -138,22 +176,6 @@ function getTZ() {
   catch (e) { return ''; }
 }
 
-function getTG() {
-  try {
-    var u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
-    var initStr = String(tg.initData || '');
-    var authDate = (tg.initDataUnsafe && tg.initDataUnsafe.auth_date) ? String(tg.initDataUnsafe.auth_date) : '';
-    return {
-      id: u.id ? String(u.id) : '',
-      platform: String(tg.platform || ''),
-      hasInit: initStr.length > 30 ? 1 : 0,
-      authDate: authDate
-    };
-  } catch (e) {
-    return { id: '', platform: '', hasInit: 0, authDate: '' };
-  }
-}
-
 function isEmulator(renderer, vendor) {
   var r = (renderer + ' ' + vendor).toLowerCase();
   var bad = ['swiftshader', 'llvmpipe', 'virtualbox', 'vmware svga', 'microsoft basic render driver', 'softgl', 'mesa offscreen', 'android emulator'];
@@ -214,7 +236,7 @@ async function getNetInfo() {
 
 async function waitMinTime() {
   var left = MIN_MS - (Date.now() - START_MS);
-  if (left > 0) await new Promise(function (r) { setTimeout(r, left); });
+  if (left > 0) await sleep(left);
 }
 
 function sendPayload(payload) {
@@ -226,30 +248,39 @@ function sendPayload(payload) {
 
 async function run() {
   try {
-    setStatus('Checking environment…', 12);
-    await new Promise(function (r) { setTimeout(r, 700); });
+    setStatus('Connecting…', 8);
+    await waitTelegramSession(2500);
+
+    setStatus('Checking environment…', 18);
+    await sleep(500);
     var webgl = getWebGL();
     if (isEmulator(webgl.renderer, webgl.vendor)) {
       await waitMinTime();
       sendPayload('ban_emu|t0=' + START_MS + '|init=0');
       return;
     }
-    setStatus('Device signals…', 28);
-    await new Promise(function (r) { setTimeout(r, 700); });
+
+    setStatus('Device signals…', 32);
+    await sleep(600);
     var canvas = getCanvas();
-    setStatus('System profile…', 42);
-    await new Promise(function (r) { setTimeout(r, 700); });
+
+    setStatus('System profile…', 45);
+    await sleep(600);
     var fonts = getFonts();
     var scr = getScreen();
     var cpu = getCPU();
-    setStatus('Telegram session…', 55);
-    await new Promise(function (r) { setTimeout(r, 700); });
+
+    setStatus('Telegram session…', 58);
+    await sleep(400);
+    await waitTelegramSession(1500);
     var tgInfo = getTG();
+
     setStatus('Network check…', 72);
-    await new Promise(function (r) { setTimeout(r, 600); });
+    await sleep(400);
     var net = await getNetInfo();
+
     setStatus('Finalizing…', 90);
-    await new Promise(function (r) { setTimeout(r, 500); });
+    await sleep(400);
 
     var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgInfo.platform].join('||');
     var fpHash = h(raw);
@@ -264,6 +295,7 @@ async function run() {
     await waitMinTime();
     sendPayload(payload);
   } catch (err) {
+    await waitTelegramSession(1000);
     var tgInfo = getTG();
     var fb = 'hw_' + h([String(screen.width||0), String(screen.height||0), String(navigator.hardwareConcurrency||0), String(navigator.platform||''), String(window.devicePixelRatio||1)].join('|'));
     if (tgInfo.id) fb += '|uid=' + tgInfo.id;
@@ -282,7 +314,7 @@ setTimeout(function () {
   waitMinTime().then(function () { sendPayload(fb); });
 }, 17000);
 
-setTimeout(run, 250);
+setTimeout(run, 200);
 </script>
 </body>
 </html>
