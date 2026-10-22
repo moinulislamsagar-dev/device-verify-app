@@ -13,7 +13,7 @@
   h2{font-size:19px;margin-bottom:6px}
   .sub{opacity:.72;font-size:12.5px;line-height:1.45}
   .progress{width:100%;height:10px;background:rgba(255,255,255,.12);border-radius:20px;margin:20px 0 10px;overflow:hidden}
-  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .4s ease}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .35s ease}
   .status{font-size:12px;opacity:.75;min-height:18px}
 </style>
 </head>
@@ -21,41 +21,46 @@
 <div class="card">
   <div class="icon">🛡️</div>
   <h2>Security Verification</h2>
-  <p class="sub">Please wait while we verify your session. This may take a few seconds.</p>
+  <p class="sub">Please wait while we verify your device. Do not close this screen.</p>
   <div class="progress"><div class="bar" id="bar"></div></div>
-  <div class="status" id="status">Please wait...</div>
+  <div class="status" id="status">Starting…</div>
 </div>
 <script>
 const tg = window.Telegram.WebApp;
 try { tg.ready(); tg.expand(); } catch (e) {}
 
+var START_MS = Date.now();
+var MIN_MS = 8000;
+var sent = false;
+
 function h(s) {
-  let x = 2166136261;
+  var x = 2166136261;
   s = String(s || '');
-  for (let i = 0; i < s.length; i++) {
+  for (var i = 0; i < s.length; i++) {
     x ^= s.charCodeAt(i);
     x = Math.imul(x, 16777619);
   }
   return (x >>> 0).toString(36);
 }
+
 function setStatus(t, p) {
   document.getElementById('status').textContent = t;
-  document.getElementById('bar').style.width = p + '%';
+  document.getElementById('bar').style.width = Math.min(100, p) + '%';
 }
 
 function getWebGL() {
   try {
-    const c = document.createElement('canvas');
-    const gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+    var c = document.createElement('canvas');
+    var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
     if (!gl) return { raw: 'w0', vendor: '', renderer: '' };
-    const di = gl.getExtension('WEBGL_debug_renderer_info');
-    const vendor = di ? String(gl.getParameter(di.UNMASKED_VENDOR_WEBGL) || '') : '';
-    const renderer = di ? String(gl.getParameter(di.UNMASKED_RENDERER_WEBGL) || '') : '';
-    const version = String(gl.getParameter(gl.VERSION) || '');
-    const shading = String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || '');
-    const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
-    const maxV = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) || 0;
-    const maxR = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
+    var di = gl.getExtension('WEBGL_debug_renderer_info');
+    var vendor = di ? String(gl.getParameter(di.UNMASKED_VENDOR_WEBGL) || '') : '';
+    var renderer = di ? String(gl.getParameter(di.UNMASKED_RENDERER_WEBGL) || '') : '';
+    var version = String(gl.getParameter(gl.VERSION) || '');
+    var shading = String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || '');
+    var maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
+    var maxV = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) || 0;
+    var maxR = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) || 0;
     return {
       raw: [vendor, renderer, version, shading, maxTex, maxV, maxR].join('|'),
       vendor: vendor,
@@ -68,9 +73,9 @@ function getWebGL() {
 
 function getCanvas() {
   try {
-    const c = document.createElement('canvas');
+    var c = document.createElement('canvas');
     c.width = 240; c.height = 60;
-    const ctx = c.getContext('2d');
+    var ctx = c.getContext('2d');
     ctx.textBaseline = 'top';
     ctx.font = '14px Arial';
     ctx.fillStyle = '#f60';
@@ -89,19 +94,19 @@ function getCanvas() {
 
 function getFonts() {
   try {
-    const list = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Tahoma','Segoe UI','Roboto','Helvetica Neue','Palatino'];
-    const span = document.createElement('span');
+    var list = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Tahoma','Segoe UI','Roboto','Helvetica Neue','Palatino'];
+    var span = document.createElement('span');
     span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
     span.textContent = 'mmmmmmmmmmlliWw';
     document.body.appendChild(span);
-    const base = {};
+    var base = {};
     ['monospace','sans-serif','serif'].forEach(function (f) {
       span.style.fontFamily = f;
       base[f] = span.offsetWidth;
     });
-    const found = [];
+    var found = [];
     list.forEach(function (font) {
-      let det = false;
+      var det = false;
       ['monospace','sans-serif','serif'].forEach(function (b) {
         span.style.fontFamily = "'" + font + "'," + b;
         if (span.offsetWidth !== base[b]) det = true;
@@ -133,23 +138,26 @@ function getTZ() {
   catch (e) { return ''; }
 }
 
-function getTGUser() {
+function getTG() {
   try {
-    const u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
+    var u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
+    var initStr = String(tg.initData || '');
+    var authDate = (tg.initDataUnsafe && tg.initDataUnsafe.auth_date) ? String(tg.initDataUnsafe.auth_date) : '';
     return {
       id: u.id ? String(u.id) : '',
-      platform: String(tg.platform || '')
+      platform: String(tg.platform || ''),
+      hasInit: initStr.length > 30 ? 1 : 0,
+      authDate: authDate
     };
   } catch (e) {
-    return { id: '', platform: '' };
+    return { id: '', platform: '', hasInit: 0, authDate: '' };
   }
 }
 
-/* Only clear software/emulator GPUs — not real phones */
 function isEmulator(renderer, vendor) {
-  const r = (renderer + ' ' + vendor).toLowerCase();
-  const bad = ['swiftshader', 'llvmpipe', 'virtualbox', 'vmware svga', 'microsoft basic render driver', 'softgl', 'mesa offscreen'];
-  for (let i = 0; i < bad.length; i++) {
+  var r = (renderer + ' ' + vendor).toLowerCase();
+  var bad = ['swiftshader', 'llvmpipe', 'virtualbox', 'vmware svga', 'microsoft basic render driver', 'softgl', 'mesa offscreen', 'android emulator'];
+  for (var i = 0; i < bad.length; i++) {
     if (r.indexOf(bad[i]) !== -1) return true;
   }
   return false;
@@ -158,10 +166,9 @@ function isEmulator(renderer, vendor) {
 async function getNetInfo() {
   var ip = '0';
   var vpn = false;
-  // Primary IP
   try {
     var ctrl = new AbortController();
-    setTimeout(function () { ctrl.abort(); }, 4000);
+    setTimeout(function () { ctrl.abort(); }, 4500);
     var r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
     var d = await r.json();
     if (d && d.ip) ip = String(d.ip);
@@ -172,112 +179,110 @@ async function getNetInfo() {
       if (d2 && d2.ip) ip = String(d2.ip);
     } catch (e2) {}
   }
-  // VPN only if explicit security flags — avoid false positives on mobile/carrier
-  if (ip && ip !== '0') {
+  if (!ip || ip === '0') return { ip: '0', vpn: false };
+
+  try {
+    var ctrlA = new AbortController();
+    setTimeout(function () { ctrlA.abort(); }, 4500);
+    var ra = await fetch('https://proxycheck.io/v2/' + encodeURIComponent(ip) + '?vpn=1&asn=1', { signal: ctrlA.signal });
+    var da = await ra.json();
+    var node = da && da[ip] ? da[ip] : null;
+    if (node) {
+      var proxy = String(node.proxy || '').toLowerCase();
+      var type = String(node.type || '').toLowerCase();
+      if (proxy === 'yes' && (type.indexOf('vpn') !== -1 || type.indexOf('socks') !== -1 || type === 'vpn')) {
+        vpn = true;
+      }
+    }
+  } catch (eA) {}
+
+  if (!vpn) {
     try {
-      var ctrl3 = new AbortController();
-      setTimeout(function () { ctrl3.abort(); }, 4000);
-      var r3 = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrl3.signal });
-      var d3 = await r3.json();
-      if (d3 && d3.success !== false && d3.security) {
-        if (d3.security.vpn === true || d3.security.proxy === true || d3.security.tor === true) {
+      var ctrlB = new AbortController();
+      setTimeout(function () { ctrlB.abort(); }, 4500);
+      var rb = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrlB.signal });
+      var db = await rb.json();
+      if (db && db.success !== false && db.security) {
+        if (db.security.vpn === true || db.security.proxy === true || db.security.tor === true) {
           vpn = true;
         }
       }
-    } catch (e3) {}
+    } catch (eB) {}
   }
   return { ip: ip, vpn: vpn };
 }
 
-function sendOk(payload) {
-  setStatus('Done.', 100);
-  setTimeout(function () {
-    try { tg.sendData(payload); } catch (e) {}
-  }, 400);
+async function waitMinTime() {
+  var left = MIN_MS - (Date.now() - START_MS);
+  if (left > 0) await new Promise(function (r) { setTimeout(r, left); });
+}
+
+function sendPayload(payload) {
+  if (sent) return;
+  sent = true;
+  setStatus('Done', 100);
+  setTimeout(function () { try { tg.sendData(payload); } catch (e) {} }, 300);
 }
 
 async function run() {
-  var t0 = Date.now();
   try {
-    setStatus('Please wait...', 10);
-    await new Promise(function (r) { setTimeout(r, 1000); });
+    setStatus('Checking environment…', 12);
+    await new Promise(function (r) { setTimeout(r, 700); });
     var webgl = getWebGL();
-
     if (isEmulator(webgl.renderer, webgl.vendor)) {
-      setStatus('Verification failed.', 100);
-      setTimeout(function () { try { tg.sendData('ban_emu'); } catch (e) {} }, 500);
+      await waitMinTime();
+      sendPayload('ban_emu|t0=' + START_MS + '|init=0');
       return;
     }
-
-    setStatus('Please wait...', 25);
-    await new Promise(function (r) { setTimeout(r, 1000); });
+    setStatus('Device signals…', 28);
+    await new Promise(function (r) { setTimeout(r, 700); });
     var canvas = getCanvas();
-
-    setStatus('Please wait...', 40);
-    await new Promise(function (r) { setTimeout(r, 900); });
+    setStatus('System profile…', 42);
+    await new Promise(function (r) { setTimeout(r, 700); });
     var fonts = getFonts();
     var scr = getScreen();
     var cpu = getCPU();
-
-    setStatus('Please wait...', 55);
-    await new Promise(function (r) { setTimeout(r, 900); });
-    var tgUser = getTGUser();
-
-    setStatus('Please wait...', 70);
-    await new Promise(function (r) { setTimeout(r, 800); });
+    setStatus('Telegram session…', 55);
+    await new Promise(function (r) { setTimeout(r, 700); });
+    var tgInfo = getTG();
+    setStatus('Network check…', 72);
+    await new Promise(function (r) { setTimeout(r, 600); });
     var net = await getNetInfo();
+    setStatus('Finalizing…', 90);
+    await new Promise(function (r) { setTimeout(r, 500); });
 
-    if (net.vpn) {
-      setStatus('Verification failed.', 100);
-      setTimeout(function () { try { tg.sendData('ban_vpn'); } catch (e) {} }, 500);
-      return;
-    }
-
-    setStatus('Please wait...', 90);
-    await new Promise(function (r) { setTimeout(r, 800); });
-
-    var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgUser.platform].join('||');
+    var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgInfo.platform].join('||');
     var fpHash = h(raw);
-    var uidPart = tgUser.id ? ('|uid=' + tgUser.id) : '';
-    var ipPart = '|ip=' + (net.ip || '0');
-    var payload = 'hw_' + fpHash + uidPart + ipPart;
+    var payload = 'hw_' + fpHash;
+    if (tgInfo.id) payload += '|uid=' + tgInfo.id;
+    payload += '|ip=' + (net.ip || '0');
+    payload += '|init=' + (tgInfo.hasInit ? '1' : '0');
+    if (tgInfo.authDate) payload += '|ad=' + tgInfo.authDate;
+    payload += '|vpn=' + (net.vpn ? '1' : '0');
+    payload += '|t0=' + START_MS;
 
-    var elapsed = Date.now() - t0;
-    if (elapsed < 10000) {
-      await new Promise(function (r) { setTimeout(r, 10000 - elapsed); });
-    }
-    sendOk(payload);
+    await waitMinTime();
+    sendPayload(payload);
   } catch (err) {
-    // Always try to complete with best-effort unique hardware payload
-    var tgUser = getTGUser();
-    var fb = 'hw_' + h([
-      String(screen.width || 0),
-      String(screen.height || 0),
-      String(navigator.hardwareConcurrency || 0),
-      String(navigator.platform || ''),
-      String(window.devicePixelRatio || 1)
-    ].join('|'));
-    if (tgUser.id) fb += '|uid=' + tgUser.id;
-    fb += '|ip=0';
-    sendOk(fb);
+    var tgInfo = getTG();
+    var fb = 'hw_' + h([String(screen.width||0), String(screen.height||0), String(navigator.hardwareConcurrency||0), String(navigator.platform||''), String(window.devicePixelRatio||1)].join('|'));
+    if (tgInfo.id) fb += '|uid=' + tgInfo.id;
+    fb += '|ip=0|init=' + (tgInfo.hasInit ? '1' : '0') + '|vpn=0|t0=' + START_MS;
+    await waitMinTime();
+    sendPayload(fb);
   }
 }
 
-// Safety timeout: still send unique-ish payload so real users are not stuck on "failed"
 setTimeout(function () {
-  var st = document.getElementById('status');
-  if (st && st.textContent.indexOf('Done') === -1 && st.textContent.indexOf('failed') === -1) {
-    try {
-      var tgUser = getTGUser();
-      var fb = 'hw_' + h(String(screen.width) + 'x' + String(screen.height) + 'x' + String(navigator.hardwareConcurrency || 0));
-      if (tgUser.id) fb += '|uid=' + tgUser.id;
-      fb += '|ip=0';
-      tg.sendData(fb);
-    } catch (e) {}
-  }
-}, 15000);
+  if (sent) return;
+  var tgInfo = getTG();
+  var fb = 'hw_' + h(String(screen.width)+'x'+String(screen.height)+'x'+String(navigator.hardwareConcurrency||0)+'x'+String(START_MS));
+  if (tgInfo.id) fb += '|uid=' + tgInfo.id;
+  fb += '|ip=0|init=' + (tgInfo.hasInit ? '1' : '0') + '|vpn=0|t0=' + START_MS;
+  waitMinTime().then(function () { sendPayload(fb); });
+}, 17000);
 
-setTimeout(run, 400);
+setTimeout(run, 250);
 </script>
 </body>
 </html>
