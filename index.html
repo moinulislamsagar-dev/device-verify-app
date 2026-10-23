@@ -13,9 +13,7 @@
       background: var(--tg-theme-bg-color, #0f172a);
       color: var(--tg-theme-text-color, #e2e8f0);
       min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       padding: 24px;
     }
     .card {
@@ -63,10 +61,7 @@
   var TURNSTILE_SITE_KEY = "0x4AAAAAAFiBGOmolKjRxNrs";
   var MIN_WAIT_MS = 8500;
 
-  var tg = null;
-  try {
-    if (window.Telegram && window.Telegram.WebApp) tg = window.Telegram.WebApp;
-  } catch (e) {}
+  var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
   if (tg) {
     try { tg.ready(); } catch (e) {}
     try { tg.expand(); } catch (e) {}
@@ -85,37 +80,30 @@
     return new Promise(function (r) { setTimeout(r, ms); });
   }
 
-  /** Robust initData: WebApp API + URL hash fallback */
+  /** Strict: must get real initData (inline / menu launch only) */
   function getInitData() {
-    var raw = "";
     try {
-      if (tg && tg.initData && String(tg.initData).length > 20) {
-        raw = String(tg.initData);
+      if (tg && tg.initData && String(tg.initData).length > 30) {
+        return String(tg.initData);
       }
     } catch (e) {}
-    if (!raw) {
-      try {
-        var h = window.location.hash || "";
-        if (h.indexOf("tgWebAppData=") >= 0) {
-          var part = h.split("tgWebAppData=")[1] || "";
-          part = part.split("&")[0];
-          raw = decodeURIComponent(part);
-        }
-      } catch (e) {}
-    }
-    return raw || "";
+    try {
+      var hash = (window.location.hash || "").replace(/^#/, "");
+      var params = new URLSearchParams(hash);
+      var fromHash = params.get("tgWebAppData");
+      if (fromHash && fromHash.length > 30) return fromHash;
+    } catch (e) {}
+    try {
+      var q = new URLSearchParams(window.location.search || "");
+      var fromQ = q.get("tgWebAppData");
+      if (fromQ && fromQ.length > 30) return fromQ;
+    } catch (e) {}
+    return "";
   }
 
   function getPlatform() {
     try { if (tg && tg.platform) return String(tg.platform); } catch (e) {}
     return "";
-  }
-
-  function sendToBot(payload) {
-    if (tg && typeof tg.sendData === "function") {
-      try { tg.sendData(payload); return true; } catch (e) { return false; }
-    }
-    return false;
   }
 
   function loadFingerprint() {
@@ -132,9 +120,8 @@
       s.onload = function () {
         try {
           FingerprintJS.load().then(function (fp) { return fp.get(); })
-            .then(function (result) {
-              finish(result && result.visitorId ? String(result.visitorId) : "");
-            }).catch(function () { finish(""); });
+            .then(function (r) { finish(r && r.visitorId ? String(r.visitorId) : ""); })
+            .catch(function () { finish(""); });
         } catch (e) { finish(""); }
       };
       s.onerror = function () { finish(""); };
@@ -160,17 +147,6 @@
       ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
       ctx.fillStyle = "#069"; ctx.fillText("IZ-fp", 4, 4);
       parts.push(c.toDataURL().slice(-64));
-    } catch (e) {}
-    try {
-      var c2 = document.createElement("canvas");
-      var gl = c2.getContext("webgl") || c2.getContext("experimental-webgl");
-      if (gl) {
-        var dbg = gl.getExtension("WEBGL_debug_renderer_info");
-        if (dbg) {
-          parts.push(String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || ""));
-          parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ""));
-        }
-      }
     } catch (e) {}
     var h = 2166136261, str = parts.join("|");
     for (var i = 0; i < str.length; i++) {
@@ -218,11 +194,9 @@
   async function run() {
     msgEl.textContent = "Checking your device securely";
     setStatus('<span class="dots">Please wait</span>');
-    spinner.classList.remove("hidden");
 
-    // Capture initData as early as possible, then refresh after wait
-    var initEarly = getInitData();
-
+    // Must have initData (inline button). Retry briefly while waiting.
+    var initData = getInitData();
     var waitP = wait(MIN_WAIT_MS);
     var fpP = loadFingerprint();
     var tsP = getTurnstileToken();
@@ -231,55 +205,59 @@
     var turnstileToken = await tsP;
     await waitP;
 
-    setStatus('<span class="dots">Almost done</span>');
-
-    var initData = getInitData() || initEarly;
-    if (!initData) {
-      for (var i = 0; i < 20; i++) {
+    if (!initData || initData.length < 30) {
+      for (var i = 0; i < 15; i++) {
         await wait(200);
         try { if (tg) tg.ready(); } catch (e) {}
         initData = getInitData();
-        if (initData) break;
+        if (initData && initData.length > 30) break;
       }
     }
 
-    // initData may be empty for reply-keyboard launches (Telegram rule).
-    // Worker v3 accepts empty initData; bot trusts Telegram message user id.
-    var body = {
-      initData: initData || "",
-      fingerprint: fp,
-      platform: getPlatform(),
-      turnstileToken: turnstileToken || ""
-    };
+    if (!initData || initData.length < 30) {
+      spinner.classList.add("hidden");
+      setStatus("Wrong open method", "err");
+      msgEl.textContent = "Open Verify only from the button under the bot message (inline). Reply-keyboard cannot provide Telegram signature.";
+      return;
+    }
+
+    setStatus('<span class="dots">Almost done</span>');
 
     var result = null;
     try {
       var res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          initData: initData,
+          fingerprint: fp,
+          platform: getPlatform(),
+          turnstileToken: turnstileToken || ""
+        })
       });
       result = await res.json();
     } catch (e) {
       spinner.classList.add("hidden");
       setStatus("Network error", "err");
       msgEl.textContent = "Could not reach server. Try again.";
-      sendToBot("fail|network|0|net");
       return;
     }
 
     spinner.classList.add("hidden");
 
-    if (result && result.ok && result.token) {
+    if (result && result.ok) {
       setStatus("Verified ✓", "ok");
-      msgEl.textContent = "Device verified successfully.";
-      sendToBot(result.token);
-      try { if (tg) setTimeout(function () { tg.close(); }, 500); } catch (e) {}
+      msgEl.textContent = "Device verified. Return to the bot and tap ✅ I finished verification.";
+      // Try sendData if available (usually not on inline)
+      try {
+        if (tg && typeof tg.sendData === "function" && result.token) {
+          tg.sendData(result.token);
+        }
+      } catch (e) {}
       return;
     }
 
     var reason = (result && result.reason) || "failed";
-    var ban = !!(result && result.ban);
     var detail = (result && result.detail) || "";
 
     if (reason === "vpn") {
@@ -287,28 +265,32 @@
       msgEl.textContent = "Turn off VPN / proxy and try again.";
     } else if (reason === "multi_device" || reason === "multi_ip") {
       setStatus("Not allowed", "err");
-      msgEl.textContent = "This device or network is already linked.";
+      msgEl.textContent = "This device or network is already linked to another account.";
     } else if (reason === "init_data") {
-      setStatus("Failed", "err");
-      msgEl.textContent = "Verification failed. Close and tap Verify again.";
+      setStatus("Telegram check failed", "err");
+      if (detail === "bad_hash") {
+        msgEl.textContent = "Bot token mismatch on server. Admin must set correct BOT_TOKEN.";
+      } else if (detail === "missing_use_inline_button") {
+        msgEl.textContent = "Open only from the inline Verify button under the message.";
+      } else {
+        msgEl.textContent = "Telegram signature invalid (" + detail + "). Try again.";
+      }
     } else if (reason === "turnstile") {
       setStatus("Check failed", "err");
       msgEl.textContent = "Human check failed. Try again.";
     } else if (reason === "misconfigured") {
       setStatus("Server config", "err");
-      msgEl.textContent = "Server not configured. Admin: check Worker secrets.";
+      msgEl.textContent = "Server secrets missing. Admin: set BOT_TOKEN + RESULT_SECRET.";
     } else {
       setStatus("Failed", "err");
       msgEl.textContent = "Verification failed. Please try again.";
     }
-    sendToBot("fail|" + reason + "|" + (ban ? "1" : "0") + "|" + String(detail).slice(0, 80));
   }
 
-  run().catch(function (e) {
+  run().catch(function () {
     spinner.classList.add("hidden");
     setStatus("Error", "err");
     msgEl.textContent = "Unexpected error. Try again.";
-    sendToBot("fail|client_error|0|" + String(e && e.message || "err").slice(0, 60));
   });
 })();
   </script>
