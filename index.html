@@ -243,16 +243,10 @@
       }
     }
 
-    if (!initData || initData.length < 20) {
-      spinner.classList.add("hidden");
-      setStatus("Open from bot", "err");
-      msgEl.textContent = "Open Verify from the bot button inside Telegram.";
-      sendToBot("fail|init_data|0|empty_client");
-      return;
-    }
-
+    // initData may be empty for reply-keyboard launches (Telegram rule).
+    // Worker v3 accepts empty initData; bot trusts Telegram message user id.
     var body = {
-      initData: initData,
+      initData: initData || "",
       fingerprint: fp,
       platform: getPlatform(),
       turnstileToken: turnstileToken || ""
