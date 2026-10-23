@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Device Verification</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -29,39 +30,42 @@
     .shield { font-size: 48px; line-height: 1; margin-bottom: 12px; }
     h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
     p { font-size: 0.9rem; opacity: 0.85; line-height: 1.45; margin-bottom: 18px; }
-    .bar-wrap {
-      height: 8px;
-      background: rgba(255,255,255,.08);
-      border-radius: 99px;
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    .bar {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #38bdf8, #818cf8);
-      border-radius: 99px;
-      transition: width 0.2s linear;
-    }
-    .status { font-size: 0.85rem; min-height: 1.4em; opacity: 0.9; }
+    .status { font-size: 0.85rem; min-height: 1.4em; opacity: 0.9; margin-top: 12px; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
-    .hint { margin-top: 16px; font-size: 0.75rem; opacity: 0.55; }
+    .hint { margin-top: 16px; font-size: 0.75rem; opacity: 0.5; }
+    .spinner {
+      width: 48px; height: 48px; margin: 8px auto 4px;
+      border: 3px solid rgba(255,255,255,.12);
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .dots::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
+    @keyframes dots {
+      0% { content: ""; } 25% { content: "."; }
+      50% { content: ".."; } 75% { content: "..."; }
+    }
+    #turnstile-box { min-height: 0; margin: 8px 0; display: flex; justify-content: center; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="shield">🛡️</div>
     <h1>Device Verification</h1>
-    <p id="msg">Security check in progress. Please wait…</p>
-    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
-    <div class="status" id="status">Starting…</div>
+    <p id="msg">Checking your device securely</p>
+    <div id="spinner" class="spinner"></div>
+    <div id="turnstile-box" class="hidden"></div>
+    <div class="status" id="status"><span class="dots">Please wait</span></div>
     <div class="hint">Do not close this window</div>
   </div>
   <script>
 (function () {
   var WORKER_URL = "https://iz-device-verify.moinul-islam-sagar.workers.dev/verify";
-  var MIN_WAIT_MS = 8000;
+  var TURNSTILE_SITE_KEY = "0x4AAAAAAFiBGOmolKjRxNrs";
+  var MIN_WAIT_MS = 8500;
 
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) {
@@ -69,72 +73,79 @@
     try { tg.expand(); } catch (e) {}
   }
 
-  var t0 = Date.now();
-  var bar = document.getElementById("bar");
   var statusEl = document.getElementById("status");
   var msgEl = document.getElementById("msg");
+  var spinner = document.getElementById("spinner");
+  var turnstileBox = document.getElementById("turnstile-box");
 
   function setStatus(text, cls) {
-    statusEl.textContent = text;
     statusEl.className = "status" + (cls ? " " + cls : "");
+    statusEl.innerHTML = text;
+  }
+  function wait(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
+  function getInitData() {
+    if (!tg) return "";
+    try {
+      if (tg.initData && String(tg.initData).length > 10) return String(tg.initData);
+    } catch (e) {}
+    return "";
+  }
+  function getPlatform() {
+    try { if (tg && tg.platform) return String(tg.platform); } catch (e) {}
+    return "";
+  }
+  function sendToBot(payload) {
+    if (tg && typeof tg.sendData === "function") {
+      try { tg.sendData(payload); return true; } catch (e) { return false; }
+    }
+    return false;
   }
 
-  function progressUntil(ms) {
+  function loadFingerprint() {
     return new Promise(function (resolve) {
-      var start = Date.now();
-      function tick() {
-        var elapsed = Date.now() - start;
-        var pct = Math.min(100, Math.floor((elapsed / ms) * 100));
-        bar.style.width = pct + "%";
-        var left = Math.max(0, Math.ceil((ms - elapsed) / 1000));
-        setStatus("Checking… " + left + "s");
-        if (elapsed >= ms) {
-          bar.style.width = "100%";
-          resolve();
-        } else {
-          requestAnimationFrame(tick);
-        }
+      var done = false;
+      function finish(id) {
+        if (done) return;
+        done = true;
+        resolve(id || localFallback());
       }
-      tick();
+      var s = document.createElement("script");
+      s.src = "https://openfpcdn.io/fingerprintjs/v4/iife.min.js";
+      s.async = true;
+      s.onload = function () {
+        try {
+          FingerprintJS.load().then(function (fp) { return fp.get(); })
+            .then(function (result) {
+              finish(result && result.visitorId ? String(result.visitorId) : "");
+            }).catch(function () { finish(""); });
+        } catch (e) { finish(""); }
+      };
+      s.onerror = function () { finish(""); };
+      document.head.appendChild(s);
+      setTimeout(function () { finish(""); }, 5000);
     });
   }
 
-  function simpleHash(str) {
-    var h = 2166136261;
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return (h >>> 0).toString(16);
-  }
-
-  function collectFingerprint() {
+  function localFallback() {
     var parts = [];
     try {
-      parts.push(navigator.userAgent || "");
-      parts.push(navigator.language || "");
-      parts.push(String(screen.width) + "x" + String(screen.height) + "x" + String(screen.colorDepth || ""));
+      parts.push(navigator.userAgent || "", navigator.language || "");
+      parts.push(String(screen.width) + "x" + String(screen.height));
       parts.push(String(window.devicePixelRatio || 1));
       parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-      parts.push(String(navigator.hardwareConcurrency || 0));
-      parts.push(String(navigator.maxTouchPoints || 0));
-      parts.push(navigator.platform || "");
+      parts.push(String(navigator.hardwareConcurrency || 0), navigator.platform || "");
     } catch (e) {}
     try {
       var c = document.createElement("canvas");
-      c.width = 200;
-      c.height = 50;
+      c.width = 200; c.height = 50;
       var ctx = c.getContext("2d");
-      ctx.textBaseline = "top";
-      ctx.font = "14px Arial";
-      ctx.fillStyle = "#f60";
-      ctx.fillRect(0, 0, 200, 50);
-      ctx.fillStyle = "#069";
-      ctx.fillText("IZ-verify-fp", 4, 4);
-      parts.push(c.toDataURL().slice(-80));
-    } catch (e) {
-      parts.push("no-canvas");
-    }
+      ctx.textBaseline = "top"; ctx.font = "14px Arial";
+      ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
+      ctx.fillStyle = "#069"; ctx.fillText("IZ-fp", 4, 4);
+      parts.push(c.toDataURL().slice(-64));
+    } catch (e) {}
     try {
       var c2 = document.createElement("canvas");
       var gl = c2.getContext("webgl") || c2.getContext("experimental-webgl");
@@ -145,65 +156,79 @@
           parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ""));
         }
       }
-    } catch (e) {
-      parts.push("no-webgl");
+    } catch (e) {}
+    var h = 2166136261, str = parts.join("|");
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
     }
-    return simpleHash(parts.join("|"));
+    return (h >>> 0).toString(16);
   }
 
-  function getInitData() {
-    if (!tg) return "";
-    try {
-      if (tg.initData && String(tg.initData).length > 10) return String(tg.initData);
-    } catch (e) {}
-    return "";
-  }
-
-  function getPlatform() {
-    try {
-      if (tg && tg.platform) return String(tg.platform);
-    } catch (e) {}
-    return "";
-  }
-
-  function sendToBot(payload) {
-    if (tg && typeof tg.sendData === "function") {
-      try {
-        tg.sendData(payload);
-        return true;
-      } catch (e) {
-        return false;
+  function getTurnstileToken() {
+    return new Promise(function (resolve) {
+      if (!TURNSTILE_SITE_KEY) { resolve(""); return; }
+      var tries = 0;
+      function start() {
+        if (typeof turnstile === "undefined") {
+          tries++;
+          if (tries > 40) { resolve(""); return; }
+          setTimeout(start, 150);
+          return;
+        }
+        turnstileBox.classList.remove("hidden");
+        try {
+          turnstile.render(turnstileBox, {
+            sitekey: TURNSTILE_SITE_KEY,
+            size: "compact",
+            callback: function (token) {
+              turnstileBox.classList.add("hidden");
+              resolve(token || "");
+            },
+            "error-callback": function () {
+              turnstileBox.classList.add("hidden");
+              resolve("");
+            },
+            "expired-callback": function () { resolve(""); }
+          });
+        } catch (e) {
+          turnstileBox.classList.add("hidden");
+          resolve("");
+        }
       }
-    }
-    return false;
+      start();
+    });
   }
 
   async function run() {
-    setStatus("Preparing…");
-    msgEl.textContent = "Security check in progress. Please wait…";
-    await progressUntil(MIN_WAIT_MS);
+    msgEl.textContent = "Checking your device securely";
+    setStatus('<span class="dots">Please wait</span>');
+    spinner.classList.remove("hidden");
 
-    setStatus("Collecting device data…");
-    var fp = collectFingerprint();
+    var waitP = wait(MIN_WAIT_MS);
+    var fpP = loadFingerprint();
+    var tsP = getTurnstileToken();
+
+    var fp = await fpP;
+    var turnstileToken = await tsP;
+    await waitP;
+
+    setStatus('<span class="dots">Almost done</span>');
+
     var initData = getInitData();
-    var platform = getPlatform();
-
     if (!initData && tg) {
-      for (var i = 0; i < 10; i++) {
-        await new Promise(function (r) { setTimeout(r, 150); });
+      for (var i = 0; i < 12; i++) {
+        await wait(120);
         initData = getInitData();
         if (initData) break;
       }
     }
 
-    setStatus("Verifying with server…");
-    bar.style.width = "100%";
-
     var body = {
       initData: initData,
       fingerprint: fp,
-      t0: t0,
-      platform: platform
+      platform: getPlatform(),
+      turnstileToken: turnstileToken
     };
 
     var result = null;
@@ -215,19 +240,20 @@
       });
       result = await res.json();
     } catch (e) {
+      spinner.classList.add("hidden");
       setStatus("Network error", "err");
-      msgEl.textContent = "Could not reach verification server. Try again.";
-      sendToBot("fail|network|" + String(e && e.message || "err").slice(0, 80));
+      msgEl.textContent = "Could not reach server. Try again.";
+      sendToBot("fail|network|0|net");
       return;
     }
+
+    spinner.classList.add("hidden");
 
     if (result && result.ok && result.token) {
       setStatus("Verified ✓", "ok");
       msgEl.textContent = "Device verified successfully.";
       sendToBot(result.token);
-      try {
-        if (tg) setTimeout(function () { tg.close(); }, 600);
-      } catch (e) {}
+      try { if (tg) setTimeout(function () { tg.close(); }, 500); } catch (e) {}
       return;
     }
 
@@ -235,29 +261,29 @@
     var ban = !!(result && result.ban);
     var detail = (result && result.detail) || "";
 
-    if (reason === "too_fast") {
-      setStatus("Too fast — blocked", "err");
-      msgEl.textContent = "Verification was submitted too quickly.";
-    } else if (reason === "vpn") {
+    if (reason === "vpn") {
       setStatus("VPN detected", "err");
-      msgEl.textContent = "Please turn off VPN / proxy and try again.";
+      msgEl.textContent = "Turn off VPN / proxy and try again.";
     } else if (reason === "multi_device" || reason === "multi_ip") {
-      setStatus("Already registered", "err");
-      msgEl.textContent = "This device or network is already linked to another account.";
+      setStatus("Not allowed", "err");
+      msgEl.textContent = "This device or network is already linked.";
     } else if (reason === "init_data") {
       setStatus("Open from Telegram", "err");
-      msgEl.textContent = "Open Verify from the bot button inside Telegram.";
+      msgEl.textContent = "Open Verify from the bot button.";
+    } else if (reason === "turnstile") {
+      setStatus("Check failed", "err");
+      msgEl.textContent = "Human check failed. Try again.";
     } else {
       setStatus("Failed", "err");
       msgEl.textContent = "Verification failed. Please try again.";
     }
-
     sendToBot("fail|" + reason + "|" + (ban ? "1" : "0") + "|" + String(detail).slice(0, 60));
   }
 
   run().catch(function (e) {
+    spinner.classList.add("hidden");
     setStatus("Error", "err");
-    msgEl.textContent = "Unexpected error. Close and try again.";
+    msgEl.textContent = "Unexpected error. Try again.";
     sendToBot("fail|client_error|0|" + String(e && e.message || "err").slice(0, 60));
   });
 })();
