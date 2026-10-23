@@ -1,302 +1,266 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Security Check</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(160deg,#0f0c29,#302b63,#24243e);color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;text-align:center}
-  .card{background:rgba(255,255,255,.08);border-radius:24px;padding:28px 22px;max-width:360px;width:100%;border:1px solid rgba(255,255,255,.12)}
-  .icon{font-size:48px;margin-bottom:10px}
-  h2{font-size:19px;margin-bottom:6px}
-  .sub{opacity:.72;font-size:12.5px;line-height:1.45}
-  .progress{width:100%;height:10px;background:rgba(255,255,255,.12);border-radius:20px;margin:20px 0 10px;overflow:hidden}
-  .bar{height:100%;width:0%;background:linear-gradient(90deg,#00f5a0,#00d9f5);border-radius:20px;transition:width .35s ease}
-  .status{font-size:12px;opacity:.75;min-height:18px}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Device Verification</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--tg-theme-bg-color, #0f172a);
+      color: var(--tg-theme-text-color, #e2e8f0);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 360px;
+      background: var(--tg-theme-secondary-bg-color, #1e293b);
+      border-radius: 16px;
+      padding: 28px 22px;
+      text-align: center;
+      box-shadow: 0 8px 32px rgba(0,0,0,.35);
+    }
+    .shield { font-size: 48px; line-height: 1; margin-bottom: 12px; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+    p { font-size: 0.9rem; opacity: 0.85; line-height: 1.45; margin-bottom: 18px; }
+    .bar-wrap {
+      height: 8px;
+      background: rgba(255,255,255,.08);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #38bdf8, #818cf8);
+      border-radius: 99px;
+      transition: width 0.2s linear;
+    }
+    .status { font-size: 0.85rem; min-height: 1.4em; opacity: 0.9; }
+    .ok { color: #4ade80; }
+    .err { color: #f87171; }
+    .hint { margin-top: 16px; font-size: 0.75rem; opacity: 0.55; }
+  </style>
 </head>
 <body>
-<div class="card">
-  <div class="icon">🛡️</div>
-  <h2>Security Verification</h2>
-  <p class="sub">Please wait. Do not close this screen (~8 seconds).</p>
-  <div class="progress"><div class="bar" id="bar"></div></div>
-  <div class="status" id="status">Starting…</div>
-</div>
-<script>
-const tg = window.Telegram.WebApp;
-try { tg.ready(); tg.expand(); } catch (e) {}
+  <div class="card">
+    <div class="shield">🛡️</div>
+    <h1>Device Verification</h1>
+    <p id="msg">Security check in progress. Please wait…</p>
+    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+    <div class="status" id="status">Starting…</div>
+    <div class="hint">Do not close this window</div>
+  </div>
+  <script>
+(function () {
+  var WORKER_URL = "https://iz-device-verify.moinul-islam-sagar.workers.dev/verify";
+  var MIN_WAIT_MS = 8000;
 
-var START_MS = Date.now();
-var MIN_MS = 8000;
-var sent = false;
-
-function h(s) {
-  var x = 2166136261;
-  s = String(s || '');
-  for (var i = 0; i < s.length; i++) {
-    x ^= s.charCodeAt(i);
-    x = Math.imul(x, 16777619);
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  if (tg) {
+    try { tg.ready(); } catch (e) {}
+    try { tg.expand(); } catch (e) {}
   }
-  return (x >>> 0).toString(36);
-}
-function setStatus(t, p) {
-  document.getElementById('status').textContent = t;
-  document.getElementById('bar').style.width = Math.min(100, p) + '%';
-}
-function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-/* Poll until Telegram injects initData / user (can take 1–3s) */
-async function waitTelegramSession(maxMs) {
   var t0 = Date.now();
-  while (Date.now() - t0 < maxMs) {
-    try {
-      var initStr = String(tg.initData || '');
-      var user = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : null;
-      if (initStr.length > 20 || (user && user.id)) return true;
-    } catch (e) {}
-    await sleep(200);
+  var bar = document.getElementById("bar");
+  var statusEl = document.getElementById("status");
+  var msgEl = document.getElementById("msg");
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = "status" + (cls ? " " + cls : "");
   }
-  return false;
-}
 
-function getTG() {
-  try {
-    var u = (tg.initDataUnsafe && tg.initDataUnsafe.user) ? tg.initDataUnsafe.user : {};
-    var initStr = String(tg.initData || '');
-    var authDate = (tg.initDataUnsafe && tg.initDataUnsafe.auth_date) ? String(tg.initDataUnsafe.auth_date) : '';
-    /* Real Telegram WebApp: signed initData OR user object from Telegram */
-    var hasInit = (initStr.length > 20 || (u && u.id)) ? 1 : 0;
-    return {
-      id: u.id ? String(u.id) : '',
-      platform: String(tg.platform || ''),
-      hasInit: hasInit,
-      authDate: authDate
-    };
-  } catch (e) {
-    return { id: '', platform: '', hasInit: 0, authDate: '' };
-  }
-}
-
-function getWebGL() {
-  try {
-    var c = document.createElement('canvas');
-    var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
-    if (!gl) return { raw: 'w0', vendor: '', renderer: '' };
-    var di = gl.getExtension('WEBGL_debug_renderer_info');
-    var vendor = di ? String(gl.getParameter(di.UNMASKED_VENDOR_WEBGL) || '') : '';
-    var renderer = di ? String(gl.getParameter(di.UNMASKED_RENDERER_WEBGL) || '') : '';
-    var version = String(gl.getParameter(gl.VERSION) || '');
-    var shading = String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || '');
-    return {
-      raw: [vendor, renderer, version, shading, gl.getParameter(gl.MAX_TEXTURE_SIZE)||0].join('|'),
-      vendor: vendor, renderer: renderer
-    };
-  } catch (e) { return { raw: 'w0', vendor: '', renderer: '' }; }
-}
-
-function getCanvas() {
-  try {
-    var c = document.createElement('canvas');
-    c.width = 240; c.height = 60;
-    var ctx = c.getContext('2d');
-    ctx.textBaseline = 'top';
-    ctx.font = '14px Arial';
-    ctx.fillStyle = '#f60';
-    ctx.fillRect(10, 5, 100, 30);
-    ctx.fillStyle = '#069';
-    ctx.fillText('SEC-CHECK', 12, 12);
-    ctx.fillStyle = 'rgba(50,200,50,0.7)';
-    ctx.font = '11px Times New Roman';
-    ctx.fillText('AaBbCc 012345', 12, 38);
-    return c.toDataURL();
-  } catch (e) { return 'c0'; }
-}
-
-function getFonts() {
-  try {
-    var list = ['Arial','Verdana','Times New Roman','Courier New','Georgia','Comic Sans MS','Impact','Tahoma','Segoe UI','Roboto'];
-    var span = document.createElement('span');
-    span.style.cssText = 'position:absolute;left:-9999px;font-size:72px;';
-    span.textContent = 'mmmmmmmmmmlliWw';
-    document.body.appendChild(span);
-    var base = {};
-    ['monospace','sans-serif','serif'].forEach(function (f) {
-      span.style.fontFamily = f;
-      base[f] = span.offsetWidth;
+  function progressUntil(ms) {
+    return new Promise(function (resolve) {
+      var start = Date.now();
+      function tick() {
+        var elapsed = Date.now() - start;
+        var pct = Math.min(100, Math.floor((elapsed / ms) * 100));
+        bar.style.width = pct + "%";
+        var left = Math.max(0, Math.ceil((ms - elapsed) / 1000));
+        setStatus("Checking… " + left + "s");
+        if (elapsed >= ms) {
+          bar.style.width = "100%";
+          resolve();
+        } else {
+          requestAnimationFrame(tick);
+        }
+      }
+      tick();
     });
-    var found = [];
-    list.forEach(function (font) {
-      var det = false;
-      ['monospace','sans-serif','serif'].forEach(function (b) {
-        span.style.fontFamily = "'" + font + "'," + b;
-        if (span.offsetWidth !== base[b]) det = true;
-      });
-      if (det) found.push(font);
-    });
-    document.body.removeChild(span);
-    return found.join(',');
-  } catch (e) { return 'f0'; }
-}
-
-function getScreen() {
-  return [screen.width||0, screen.height||0, screen.availWidth||0, screen.availHeight||0, screen.colorDepth||24, window.devicePixelRatio||1].join('x');
-}
-function getCPU() {
-  return [navigator.hardwareConcurrency||0, navigator.deviceMemory||0, navigator.maxTouchPoints||0, navigator.platform||'', navigator.language||''].join('|');
-}
-function getTZ() {
-  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
-}
-
-function isEmulator(renderer, vendor) {
-  var r = (renderer + ' ' + vendor).toLowerCase();
-  var bad = ['swiftshader','llvmpipe','virtualbox','vmware','microsoft basic render','softgl','mesa offscreen','android emulator'];
-  for (var i = 0; i < bad.length; i++) if (r.indexOf(bad[i]) !== -1) return true;
-  return false;
-}
-
-/* Stronger VPN: proxy=yes alone is enough (was too strict before) */
-async function getNetInfo() {
-  var ip = '0';
-  var vpn = false;
-  try {
-    var ctrl = new AbortController();
-    setTimeout(function () { ctrl.abort(); }, 5000);
-    var r = await fetch('https://api.ipify.org?format=json', { signal: ctrl.signal });
-    var d = await r.json();
-    if (d && d.ip) ip = String(d.ip);
-  } catch (e) {
-    try {
-      var r2 = await fetch('https://api64.ipify.org?format=json');
-      var d2 = await r2.json();
-      if (d2 && d2.ip) ip = String(d2.ip);
-    } catch (e2) {}
   }
-  if (!ip || ip === '0') return { ip: '0', vpn: false };
 
-  /* proxycheck: any proxy=yes OR type VPN/TOR */
-  try {
-    var ctrlA = new AbortController();
-    setTimeout(function () { ctrlA.abort(); }, 5000);
-    var ra = await fetch('https://proxycheck.io/v2/' + encodeURIComponent(ip) + '?vpn=1&asn=1', { signal: ctrlA.signal });
-    var da = await ra.json();
-    var node = da && da[ip] ? da[ip] : null;
-    if (node) {
-      var proxy = String(node.proxy || '').toLowerCase();
-      var type = String(node.type || '').toLowerCase();
-      if (proxy === 'yes') vpn = true;
-      if (type.indexOf('vpn') !== -1 || type.indexOf('tor') !== -1 || type.indexOf('socks') !== -1) vpn = true;
+  function simpleHash(str) {
+    var h = 2166136261;
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
     }
-  } catch (eA) {}
-
-  /* ipwho security flags */
-  if (!vpn) {
-    try {
-      var ctrlB = new AbortController();
-      setTimeout(function () { ctrlB.abort(); }, 5000);
-      var rb = await fetch('https://ipwho.is/' + encodeURIComponent(ip), { signal: ctrlB.signal });
-      var db = await rb.json();
-      if (db && db.success !== false && db.security) {
-        if (db.security.vpn === true || db.security.proxy === true || db.security.tor === true) vpn = true;
-      }
-    } catch (eB) {}
+    return (h >>> 0).toString(16);
   }
 
-  /* vpnapi.io free (no key limited) */
-  if (!vpn) {
+  function collectFingerprint() {
+    var parts = [];
     try {
-      var ctrlC = new AbortController();
-      setTimeout(function () { ctrlC.abort(); }, 4000);
-      var rc = await fetch('https://vpnapi.io/api/' + encodeURIComponent(ip), { signal: ctrlC.signal });
-      var dc = await rc.json();
-      if (dc && dc.security) {
-        if (dc.security.vpn === true || dc.security.proxy === true || dc.security.tor === true) vpn = true;
+      parts.push(navigator.userAgent || "");
+      parts.push(navigator.language || "");
+      parts.push(String(screen.width) + "x" + String(screen.height) + "x" + String(screen.colorDepth || ""));
+      parts.push(String(window.devicePixelRatio || 1));
+      parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+      parts.push(String(navigator.hardwareConcurrency || 0));
+      parts.push(String(navigator.maxTouchPoints || 0));
+      parts.push(navigator.platform || "");
+    } catch (e) {}
+    try {
+      var c = document.createElement("canvas");
+      c.width = 200;
+      c.height = 50;
+      var ctx = c.getContext("2d");
+      ctx.textBaseline = "top";
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "#f60";
+      ctx.fillRect(0, 0, 200, 50);
+      ctx.fillStyle = "#069";
+      ctx.fillText("IZ-verify-fp", 4, 4);
+      parts.push(c.toDataURL().slice(-80));
+    } catch (e) {
+      parts.push("no-canvas");
+    }
+    try {
+      var c2 = document.createElement("canvas");
+      var gl = c2.getContext("webgl") || c2.getContext("experimental-webgl");
+      if (gl) {
+        var dbg = gl.getExtension("WEBGL_debug_renderer_info");
+        if (dbg) {
+          parts.push(String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || ""));
+          parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ""));
+        }
       }
-    } catch (eC) {}
+    } catch (e) {
+      parts.push("no-webgl");
+    }
+    return simpleHash(parts.join("|"));
   }
 
-  return { ip: ip, vpn: vpn };
-}
+  function getInitData() {
+    if (!tg) return "";
+    try {
+      if (tg.initData && String(tg.initData).length > 10) return String(tg.initData);
+    } catch (e) {}
+    return "";
+  }
 
-async function waitMinTime() {
-  var left = MIN_MS - (Date.now() - START_MS);
-  if (left > 0) await sleep(left);
-}
+  function getPlatform() {
+    try {
+      if (tg && tg.platform) return String(tg.platform);
+    } catch (e) {}
+    return "";
+  }
 
-function sendPayload(payload) {
-  if (sent) return;
-  sent = true;
-  setStatus('Done', 100);
-  setTimeout(function () { try { tg.sendData(payload); } catch (e) {} }, 300);
-}
+  function sendToBot(payload) {
+    if (tg && typeof tg.sendData === "function") {
+      try {
+        tg.sendData(payload);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  }
 
-async function run() {
-  try {
-    setStatus('Telegram session…', 10);
-    await waitTelegramSession(3500);
+  async function run() {
+    setStatus("Preparing…");
+    msgEl.textContent = "Security check in progress. Please wait…";
+    await progressUntil(MIN_WAIT_MS);
 
-    setStatus('Environment…', 22);
-    await sleep(400);
-    var webgl = getWebGL();
-    if (isEmulator(webgl.renderer, webgl.vendor)) {
-      await waitMinTime();
-      sendPayload('ban_emu|init=0|t0=' + START_MS);
+    setStatus("Collecting device data…");
+    var fp = collectFingerprint();
+    var initData = getInitData();
+    var platform = getPlatform();
+
+    if (!initData && tg) {
+      for (var i = 0; i < 10; i++) {
+        await new Promise(function (r) { setTimeout(r, 150); });
+        initData = getInitData();
+        if (initData) break;
+      }
+    }
+
+    setStatus("Verifying with server…");
+    bar.style.width = "100%";
+
+    var body = {
+      initData: initData,
+      fingerprint: fp,
+      t0: t0,
+      platform: platform
+    };
+
+    var result = null;
+    try {
+      var res = await fetch(WORKER_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      result = await res.json();
+    } catch (e) {
+      setStatus("Network error", "err");
+      msgEl.textContent = "Could not reach verification server. Try again.";
+      sendToBot("fail|network|" + String(e && e.message || "err").slice(0, 80));
       return;
     }
 
-    setStatus('Device…', 38);
-    await sleep(500);
-    var canvas = getCanvas();
-    var fonts = getFonts();
-    var scr = getScreen();
-    var cpu = getCPU();
+    if (result && result.ok && result.token) {
+      setStatus("Verified ✓", "ok");
+      msgEl.textContent = "Device verified successfully.";
+      sendToBot(result.token);
+      try {
+        if (tg) setTimeout(function () { tg.close(); }, 600);
+      } catch (e) {}
+      return;
+    }
 
-    setStatus('Session…', 52);
-    await waitTelegramSession(2000);
-    var tgInfo = getTG();
+    var reason = (result && result.reason) || "failed";
+    var ban = !!(result && result.ban);
+    var detail = (result && result.detail) || "";
 
-    setStatus('Network…', 70);
-    var net = await getNetInfo();
+    if (reason === "too_fast") {
+      setStatus("Too fast — blocked", "err");
+      msgEl.textContent = "Verification was submitted too quickly.";
+    } else if (reason === "vpn") {
+      setStatus("VPN detected", "err");
+      msgEl.textContent = "Please turn off VPN / proxy and try again.";
+    } else if (reason === "multi_device" || reason === "multi_ip") {
+      setStatus("Already registered", "err");
+      msgEl.textContent = "This device or network is already linked to another account.";
+    } else if (reason === "init_data") {
+      setStatus("Open from Telegram", "err");
+      msgEl.textContent = "Open Verify from the bot button inside Telegram.";
+    } else {
+      setStatus("Failed", "err");
+      msgEl.textContent = "Verification failed. Please try again.";
+    }
 
-    setStatus('Finalizing…', 90);
-    await sleep(300);
-
-    var raw = [webgl.raw, h(canvas), fonts, scr, cpu, getTZ(), tgInfo.platform].join('||');
-    var fpHash = h(raw);
-    var payload = 'hw_' + fpHash;
-    if (tgInfo.id) payload += '|uid=' + tgInfo.id;
-    payload += '|ip=' + (net.ip || '0');
-    payload += '|init=' + (tgInfo.hasInit ? '1' : '0');
-    if (tgInfo.authDate) payload += '|ad=' + tgInfo.authDate;
-    payload += '|vpn=' + (net.vpn ? '1' : '0');
-    payload += '|t0=' + START_MS;
-
-    await waitMinTime();
-    sendPayload(payload);
-  } catch (err) {
-    await waitTelegramSession(1000);
-    var tgInfo = getTG();
-    var fb = 'hw_' + h([String(screen.width||0), String(screen.height||0), String(navigator.hardwareConcurrency||0), String(navigator.platform||'')].join('|'));
-    if (tgInfo.id) fb += '|uid=' + tgInfo.id;
-    fb += '|ip=0|init=' + (tgInfo.hasInit ? '1' : '0') + '|vpn=0|t0=' + START_MS;
-    await waitMinTime();
-    sendPayload(fb);
+    sendToBot("fail|" + reason + "|" + (ban ? "1" : "0") + "|" + String(detail).slice(0, 60));
   }
-}
 
-setTimeout(function () {
-  if (sent) return;
-  var tgInfo = getTG();
-  var fb = 'hw_' + h(String(screen.width)+'x'+String(screen.height)+'x'+String(START_MS));
-  if (tgInfo.id) fb += '|uid=' + tgInfo.id;
-  fb += '|ip=0|init=' + (tgInfo.hasInit ? '1' : '0') + '|vpn=0|t0=' + START_MS;
-  waitMinTime().then(function () { sendPayload(fb); });
-}, 17000);
-
-setTimeout(run, 200);
-</script>
+  run().catch(function (e) {
+    setStatus("Error", "err");
+    msgEl.textContent = "Unexpected error. Close and try again.";
+    sendToBot("fail|client_error|0|" + String(e && e.message || "err").slice(0, 60));
+  });
+})();
+  </script>
 </body>
 </html>
