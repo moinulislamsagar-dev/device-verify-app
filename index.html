@@ -289,8 +289,8 @@
       setStatus("Not allowed", "err");
       msgEl.textContent = "This device or network is already linked.";
     } else if (reason === "init_data") {
-      setStatus("Session error", "err");
-      msgEl.textContent = "Telegram session invalid. Close and tap Verify again.";
+      setStatus("Failed", "err");
+      msgEl.textContent = "Verification failed. Close and tap Verify again.";
     } else if (reason === "turnstile") {
       setStatus("Check failed", "err");
       msgEl.textContent = "Human check failed. Try again.";
