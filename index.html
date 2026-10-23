@@ -19,26 +19,22 @@
       padding: 24px;
     }
     .card {
-      width: 100%;
-      max-width: 360px;
+      width: 100%; max-width: 360px;
       background: var(--tg-theme-secondary-bg-color, #1e293b);
-      border-radius: 16px;
-      padding: 28px 22px;
-      text-align: center;
+      border-radius: 16px; padding: 28px 22px; text-align: center;
       box-shadow: 0 8px 32px rgba(0,0,0,.35);
     }
-    .shield { font-size: 48px; line-height: 1; margin-bottom: 12px; }
+    .shield { font-size: 48px; margin-bottom: 12px; }
     h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
     p { font-size: 0.9rem; opacity: 0.85; line-height: 1.45; margin-bottom: 18px; }
-    .status { font-size: 0.85rem; min-height: 1.4em; opacity: 0.9; margin-top: 12px; }
+    .status { font-size: 0.85rem; min-height: 1.4em; margin-top: 12px; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
     .hint { margin-top: 16px; font-size: 0.75rem; opacity: 0.5; }
     .spinner {
       width: 48px; height: 48px; margin: 8px auto 4px;
       border: 3px solid rgba(255,255,255,.12);
-      border-top-color: #38bdf8;
-      border-radius: 50%;
+      border-top-color: #38bdf8; border-radius: 50%;
       animation: spin 0.9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -47,7 +43,7 @@
       0% { content: ""; } 25% { content: "."; }
       50% { content: ".."; } 75% { content: "..."; }
     }
-    #turnstile-box { min-height: 0; margin: 8px 0; display: flex; justify-content: center; }
+    #turnstile-box { margin: 8px 0; display: flex; justify-content: center; }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -67,7 +63,10 @@
   var TURNSTILE_SITE_KEY = "0x4AAAAAAFiBGOmolKjRxNrs";
   var MIN_WAIT_MS = 8500;
 
-  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  var tg = null;
+  try {
+    if (window.Telegram && window.Telegram.WebApp) tg = window.Telegram.WebApp;
+  } catch (e) {}
   if (tg) {
     try { tg.ready(); } catch (e) {}
     try { tg.expand(); } catch (e) {}
@@ -85,17 +84,33 @@
   function wait(ms) {
     return new Promise(function (r) { setTimeout(r, ms); });
   }
+
+  /** Robust initData: WebApp API + URL hash fallback */
   function getInitData() {
-    if (!tg) return "";
+    var raw = "";
     try {
-      if (tg.initData && String(tg.initData).length > 10) return String(tg.initData);
+      if (tg && tg.initData && String(tg.initData).length > 20) {
+        raw = String(tg.initData);
+      }
     } catch (e) {}
-    return "";
+    if (!raw) {
+      try {
+        var h = window.location.hash || "";
+        if (h.indexOf("tgWebAppData=") >= 0) {
+          var part = h.split("tgWebAppData=")[1] || "";
+          part = part.split("&")[0];
+          raw = decodeURIComponent(part);
+        }
+      } catch (e) {}
+    }
+    return raw || "";
   }
+
   function getPlatform() {
     try { if (tg && tg.platform) return String(tg.platform); } catch (e) {}
     return "";
   }
+
   function sendToBot(payload) {
     if (tg && typeof tg.sendData === "function") {
       try { tg.sendData(payload); return true; } catch (e) { return false; }
@@ -205,6 +220,9 @@
     setStatus('<span class="dots">Please wait</span>');
     spinner.classList.remove("hidden");
 
+    // Capture initData as early as possible, then refresh after wait
+    var initEarly = getInitData();
+
     var waitP = wait(MIN_WAIT_MS);
     var fpP = loadFingerprint();
     var tsP = getTurnstileToken();
@@ -215,20 +233,29 @@
 
     setStatus('<span class="dots">Almost done</span>');
 
-    var initData = getInitData();
-    if (!initData && tg) {
-      for (var i = 0; i < 12; i++) {
-        await wait(120);
+    var initData = getInitData() || initEarly;
+    if (!initData) {
+      for (var i = 0; i < 20; i++) {
+        await wait(200);
+        try { if (tg) tg.ready(); } catch (e) {}
         initData = getInitData();
         if (initData) break;
       }
+    }
+
+    if (!initData || initData.length < 20) {
+      spinner.classList.add("hidden");
+      setStatus("Open from bot", "err");
+      msgEl.textContent = "Open Verify from the bot button inside Telegram.";
+      sendToBot("fail|init_data|0|empty_client");
+      return;
     }
 
     var body = {
       initData: initData,
       fingerprint: fp,
       platform: getPlatform(),
-      turnstileToken: turnstileToken
+      turnstileToken: turnstileToken || ""
     };
 
     var result = null;
@@ -268,16 +295,19 @@
       setStatus("Not allowed", "err");
       msgEl.textContent = "This device or network is already linked.";
     } else if (reason === "init_data") {
-      setStatus("Open from Telegram", "err");
-      msgEl.textContent = "Open Verify from the bot button.";
+      setStatus("Session error", "err");
+      msgEl.textContent = "Telegram session invalid. Close and tap Verify again.";
     } else if (reason === "turnstile") {
       setStatus("Check failed", "err");
       msgEl.textContent = "Human check failed. Try again.";
+    } else if (reason === "misconfigured") {
+      setStatus("Server config", "err");
+      msgEl.textContent = "Server not configured. Admin: check Worker secrets.";
     } else {
       setStatus("Failed", "err");
       msgEl.textContent = "Verification failed. Please try again.";
     }
-    sendToBot("fail|" + reason + "|" + (ban ? "1" : "0") + "|" + String(detail).slice(0, 60));
+    sendToBot("fail|" + reason + "|" + (ban ? "1" : "0") + "|" + String(detail).slice(0, 80));
   }
 
   run().catch(function (e) {
