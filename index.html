@@ -80,23 +80,12 @@
     return new Promise(function (r) { setTimeout(r, ms); });
   }
 
-  /** Strict: must get real initData (inline / menu launch only) */
+  /** Only official Telegram.WebApp.initData (do not rebuild from hash) */
   function getInitData() {
     try {
       if (tg && tg.initData && String(tg.initData).length > 30) {
         return String(tg.initData);
       }
-    } catch (e) {}
-    try {
-      var hash = (window.location.hash || "").replace(/^#/, "");
-      var params = new URLSearchParams(hash);
-      var fromHash = params.get("tgWebAppData");
-      if (fromHash && fromHash.length > 30) return fromHash;
-    } catch (e) {}
-    try {
-      var q = new URLSearchParams(window.location.search || "");
-      var fromQ = q.get("tgWebAppData");
-      if (fromQ && fromQ.length > 30) return fromQ;
     } catch (e) {}
     return "";
   }
@@ -230,6 +219,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           initData: initData,
+          initDataB64: btoa(unescape(encodeURIComponent(initData))),
           fingerprint: fp,
           platform: getPlatform(),
           turnstileToken: turnstileToken || ""
@@ -270,12 +260,13 @@
       setStatus("Telegram check failed", "err");
       var extra = "";
       try {
-        if (result.worker_bot_id) extra += " worker_bot=" + result.worker_bot_id;
-        if (result.init_len != null) extra += " init_len=" + result.init_len;
-        if (result.has_hash != null) extra += " hash=" + result.has_hash;
+        if (result.worker_bot_id) extra += " bot=" + result.worker_bot_id;
+        if (result.init_len != null) extra += " len=" + result.init_len;
+        if (result.has_signature != null) extra += " sig=" + result.has_signature;
+        if (result.keys) extra += " keys=" + result.keys;
       } catch (e) {}
       if (detail === "bad_hash") {
-        msgEl.textContent = "Signature check failed (" + detail + ")." + extra + " Deploy Worker v7 and retry.";
+        msgEl.textContent = "Signature failed." + extra + " Deploy Worker v8.";
       } else if (detail === "missing_use_inline_button") {
         msgEl.textContent = "Open only from the inline Verify button under the message.";
       } else {
