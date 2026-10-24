@@ -268,12 +268,18 @@
       msgEl.textContent = "This device or network is already linked to another account.";
     } else if (reason === "init_data") {
       setStatus("Telegram check failed", "err");
+      var extra = "";
+      try {
+        if (result.worker_bot_id) extra += " worker_bot=" + result.worker_bot_id;
+        if (result.init_len != null) extra += " init_len=" + result.init_len;
+        if (result.has_hash != null) extra += " hash=" + result.has_hash;
+      } catch (e) {}
       if (detail === "bad_hash") {
-        msgEl.textContent = "Bot token mismatch on server. Admin must set correct BOT_TOKEN.";
+        msgEl.textContent = "Signature check failed (" + detail + ")." + extra + " Deploy Worker v7 and retry.";
       } else if (detail === "missing_use_inline_button") {
         msgEl.textContent = "Open only from the inline Verify button under the message.";
       } else {
-        msgEl.textContent = "Telegram signature invalid (" + detail + "). Try again.";
+        msgEl.textContent = "Telegram check failed: " + detail + extra;
       }
     } else if (reason === "turnstile") {
       setStatus("Check failed", "err");
