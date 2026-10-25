@@ -23,12 +23,10 @@
       box-shadow: 0 8px 32px rgba(0,0,0,.35);
     }
     .shield { font-size: 48px; margin-bottom: 12px; }
-    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
-    p { font-size: 0.9rem; opacity: 0.85; line-height: 1.45; margin-bottom: 18px; }
-    .status { font-size: 0.85rem; min-height: 1.4em; margin-top: 12px; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; }
+    .status { font-size: 0.95rem; min-height: 1.4em; margin-top: 14px; opacity: 0.9; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
-    .hint { margin-top: 16px; font-size: 0.75rem; opacity: 0.5; }
     .spinner {
       width: 48px; height: 48px; margin: 8px auto 4px;
       border: 3px solid rgba(255,255,255,.12);
@@ -49,11 +47,9 @@
   <div class="card">
     <div class="shield">🛡️</div>
     <h1>Device Verification</h1>
-    <p id="msg">Checking your device securely</p>
     <div id="spinner" class="spinner"></div>
     <div id="turnstile-box" class="hidden"></div>
     <div class="status" id="status"><span class="dots">Please wait</span></div>
-    <div class="hint">Do not close this window</div>
   </div>
   <script>
 (function () {
@@ -68,7 +64,6 @@
   }
 
   var statusEl = document.getElementById("status");
-  var msgEl = document.getElementById("msg");
   var spinner = document.getElementById("spinner");
   var turnstileBox = document.getElementById("turnstile-box");
 
@@ -80,7 +75,6 @@
     return new Promise(function (r) { setTimeout(r, ms); });
   }
 
-  /** Only official Telegram.WebApp.initData (do not rebuild from hash) */
   function getInitData() {
     try {
       if (tg && tg.initData && String(tg.initData).length > 30) {
@@ -181,10 +175,8 @@
   }
 
   async function run() {
-    msgEl.textContent = "Checking your device securely";
     setStatus('<span class="dots">Please wait</span>');
 
-    // Must have initData (inline button). Retry briefly while waiting.
     var initData = getInitData();
     var waitP = wait(MIN_WAIT_MS);
     var fpP = loadFingerprint();
@@ -205,12 +197,9 @@
 
     if (!initData || initData.length < 30) {
       spinner.classList.add("hidden");
-      setStatus("Wrong open method", "err");
-      msgEl.textContent = "Open Verify only from the button under the bot message (inline). Reply-keyboard cannot provide Telegram signature.";
+      setStatus("Open Verify from the bot.", "err");
       return;
     }
-
-    setStatus('<span class="dots">Almost done</span>');
 
     var result = null;
     try {
@@ -228,17 +217,14 @@
       result = await res.json();
     } catch (e) {
       spinner.classList.add("hidden");
-      setStatus("Network error", "err");
-      msgEl.textContent = "Could not reach server. Try again.";
+      setStatus("Network error. Try again.", "err");
       return;
     }
 
     spinner.classList.add("hidden");
 
     if (result && result.ok) {
-      setStatus("Verified ✓", "ok");
-      msgEl.textContent = "Device verified. Return to the bot and tap ✅ I finished verification.";
-      // Try sendData if available (usually not on inline)
+      setStatus("Verified ✓  Return & tap Done.", "ok");
       try {
         if (tg && typeof tg.sendData === "function" && result.token) {
           tg.sendData(result.token);
@@ -248,46 +234,20 @@
     }
 
     var reason = (result && result.reason) || "failed";
-    var detail = (result && result.detail) || "";
-
     if (reason === "vpn") {
-      setStatus("VPN detected", "err");
-      msgEl.textContent = "Turn off VPN / proxy and try again.";
+      setStatus("Turn off VPN and try again.", "err");
     } else if (reason === "multi_device" || reason === "multi_ip") {
-      setStatus("Not allowed", "err");
-      msgEl.textContent = "This device or network is already linked to another account.";
-    } else if (reason === "init_data") {
-      setStatus("Telegram check failed", "err");
-      var extra = "";
-      try {
-        if (result.worker_bot_id) extra += " bot=" + result.worker_bot_id;
-        if (result.init_len != null) extra += " len=" + result.init_len;
-        if (result.has_signature != null) extra += " sig=" + result.has_signature;
-        if (result.keys) extra += " keys=" + result.keys;
-      } catch (e) {}
-      if (detail === "bad_hash") {
-        msgEl.textContent = "Signature failed." + extra + " Deploy Worker v8.";
-      } else if (detail === "missing_use_inline_button") {
-        msgEl.textContent = "Open only from the inline Verify button under the message.";
-      } else {
-        msgEl.textContent = "Telegram check failed: " + detail + extra;
-      }
+      setStatus("This device is already used.", "err");
     } else if (reason === "turnstile") {
-      setStatus("Check failed", "err");
-      msgEl.textContent = "Human check failed. Try again.";
-    } else if (reason === "misconfigured") {
-      setStatus("Server config", "err");
-      msgEl.textContent = "Server secrets missing. Admin: set BOT_TOKEN + RESULT_SECRET.";
+      setStatus("Check failed. Try again.", "err");
     } else {
-      setStatus("Failed", "err");
-      msgEl.textContent = "Verification failed. Please try again.";
+      setStatus("Failed. Try again.", "err");
     }
   }
 
   run().catch(function () {
     spinner.classList.add("hidden");
-    setStatus("Error", "err");
-    msgEl.textContent = "Unexpected error. Try again.";
+    setStatus("Error. Try again.", "err");
   });
 })();
   </script>
