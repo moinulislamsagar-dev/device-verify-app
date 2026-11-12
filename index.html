@@ -23,15 +23,15 @@
       box-shadow: 0 8px 32px rgba(0,0,0,.35);
     }
     .shield { font-size: 48px; margin-bottom: 12px; }
-    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 16px; }
-    .status { font-size: 0.95rem; min-height: 1.4em; margin-top: 14px; opacity: 0.9; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 12px; }
+    .status { font-size: 0.95rem; min-height: 1.4em; margin-top: 12px; opacity: 0.95; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
     .spinner {
-      width: 48px; height: 48px; margin: 8px auto 4px;
+      width: 48px; height: 48px; margin: 10px auto 6px;
       border: 3px solid rgba(255,255,255,.12);
       border-top-color: #38bdf8; border-radius: 50%;
-      animation: spin 0.9s linear infinite;
+      animation: spin 0.85s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .dots::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
@@ -39,7 +39,7 @@
       0% { content: ""; } 25% { content: "."; }
       50% { content: ".."; } 75% { content: "..."; }
     }
-    #turnstile-box { margin: 8px 0; display: flex; justify-content: center; }
+    #turnstile-box { margin: 10px 0 4px; display: flex; justify-content: center; min-height: 65px; }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -48,14 +48,12 @@
     <div class="shield">🛡️</div>
     <h1>Device Verification</h1>
     <div id="spinner" class="spinner"></div>
-    <div id="turnstile-box" class="hidden"></div>
+    <div id="turnstile-box"></div>
     <div class="status" id="status"><span class="dots">Please wait</span></div>
   </div>
   <script>
 (function () {
-  var WORKER_URL = "https://iz-device-verify.moinul-islam-sagar.workers.dev/verify";
   var TURNSTILE_SITE_KEY = "0x4AAAAAAFiBGOmolKjRxNrs";
-  var MIN_WAIT_MS = 8500;
 
   var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
   if (tg) {
@@ -71,22 +69,62 @@
     statusEl.className = "status" + (cls ? " " + cls : "");
     statusEl.innerHTML = text;
   }
-  function wait(ms) {
-    return new Promise(function (r) { setTimeout(r, ms); });
-  }
 
-  function getInitData() {
+  function getTelegramUserId() {
     try {
-      if (tg && tg.initData && String(tg.initData).length > 30) {
-        return String(tg.initData);
+      if (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) {
+        return String(tg.initDataUnsafe.user.id);
       }
     } catch (e) {}
-    return "";
+    return "0";
   }
 
-  function getPlatform() {
-    try { if (tg && tg.platform) return String(tg.platform); } catch (e) {}
-    return "";
+  function localFingerprint() {
+    var parts = [];
+    try {
+      parts.push(navigator.userAgent || "");
+      parts.push(navigator.language || "");
+      parts.push(String(screen.width) + "x" + String(screen.height) + "x" + String(screen.colorDepth || 0));
+      parts.push(String(window.devicePixelRatio || 1));
+      parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
+      parts.push(String(navigator.hardwareConcurrency || 0));
+      parts.push(navigator.platform || "");
+      parts.push(String(navigator.maxTouchPoints || 0));
+      parts.push(String(screen.availWidth) + "x" + String(screen.availHeight));
+    } catch (e) {}
+    try {
+      var c = document.createElement("canvas");
+      c.width = 240; c.height = 60;
+      var ctx = c.getContext("2d");
+      ctx.textBaseline = "top";
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "#f60";
+      ctx.fillRect(0, 0, 240, 60);
+      ctx.fillStyle = "#069";
+      ctx.fillText("IZ-device-fp", 6, 8);
+      ctx.strokeStyle = "#000";
+      ctx.strokeText("IZ-device-fp", 6, 28);
+      parts.push(c.toDataURL().slice(-96));
+    } catch (e) {}
+    try {
+      var canvas = document.createElement("canvas");
+      var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (gl) {
+        var dbg = gl.getExtension("WEBGL_debug_renderer_info");
+        if (dbg) {
+          parts.push(String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || ""));
+          parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ""));
+        }
+        parts.push(String(gl.getParameter(gl.VERSION) || ""));
+      }
+    } catch (e) {}
+    var h = 2166136261;
+    var str = parts.join("|");
+    for (var i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return "lf_" + (h >>> 0).toString(16);
   }
 
   function loadFingerprint() {
@@ -95,78 +133,92 @@
       function finish(id) {
         if (done) return;
         done = true;
-        resolve(id || localFallback());
+        resolve((id && String(id).length > 4) ? String(id) : localFingerprint());
       }
-      var s = document.createElement("script");
-      s.src = "https://openfpcdn.io/fingerprintjs/v4/iife.min.js";
-      s.async = true;
-      s.onload = function () {
-        try {
-          FingerprintJS.load().then(function (fp) { return fp.get(); })
-            .then(function (r) { finish(r && r.visitorId ? String(r.visitorId) : ""); })
-            .catch(function () { finish(""); });
-        } catch (e) { finish(""); }
-      };
-      s.onerror = function () { finish(""); };
-      document.head.appendChild(s);
-      setTimeout(function () { finish(""); }, 5000);
+      try {
+        var s = document.createElement("script");
+        s.src = "https://openfpcdn.io/fingerprintjs/v4/iife.min.js";
+        s.async = true;
+        s.onload = function () {
+          try {
+            FingerprintJS.load()
+              .then(function (fp) { return fp.get(); })
+              .then(function (r) { finish(r && r.visitorId ? r.visitorId : ""); })
+              .catch(function () { finish(""); });
+          } catch (e) { finish(""); }
+        };
+        s.onerror = function () { finish(""); };
+        document.head.appendChild(s);
+        setTimeout(function () { finish(""); }, 4500);
+      } catch (e) {
+        finish("");
+      }
     });
   }
 
-  function localFallback() {
-    var parts = [];
-    try {
-      parts.push(navigator.userAgent || "", navigator.language || "");
-      parts.push(String(screen.width) + "x" + String(screen.height));
-      parts.push(String(window.devicePixelRatio || 1));
-      parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-      parts.push(String(navigator.hardwareConcurrency || 0), navigator.platform || "");
-    } catch (e) {}
-    try {
-      var c = document.createElement("canvas");
-      c.width = 200; c.height = 50;
-      var ctx = c.getContext("2d");
-      ctx.textBaseline = "top"; ctx.font = "14px Arial";
-      ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 200, 50);
-      ctx.fillStyle = "#069"; ctx.fillText("IZ-fp", 4, 4);
-      parts.push(c.toDataURL().slice(-64));
-    } catch (e) {}
-    var h = 2166136261, str = parts.join("|");
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619);
-    }
-    return (h >>> 0).toString(16);
+  function fetchPublicIp() {
+    return new Promise(function (resolve) {
+      var done = false;
+      function finish(ip) {
+        if (done) return;
+        done = true;
+        resolve(ip || "unknown");
+      }
+      var timer = setTimeout(function () { finish("unknown"); }, 3500);
+      try {
+        fetch("https://api.ipify.org?format=json")
+          .then(function (r) { return r.json(); })
+          .then(function (j) {
+            clearTimeout(timer);
+            finish((j && j.ip) ? String(j.ip) : "unknown");
+          })
+          .catch(function () {
+            clearTimeout(timer);
+            // fallback
+            fetch("https://api64.ipify.org?format=json")
+              .then(function (r) { return r.json(); })
+              .then(function (j) { finish((j && j.ip) ? String(j.ip) : "unknown"); })
+              .catch(function () { finish("unknown"); });
+          });
+      } catch (e) {
+        clearTimeout(timer);
+        finish("unknown");
+      }
+    });
   }
 
   function getTurnstileToken() {
     return new Promise(function (resolve) {
-      if (!TURNSTILE_SITE_KEY) { resolve(""); return; }
+      if (!TURNSTILE_SITE_KEY) {
+        resolve("");
+        return;
+      }
       var tries = 0;
       function start() {
         if (typeof turnstile === "undefined") {
           tries++;
-          if (tries > 40) { resolve(""); return; }
-          setTimeout(start, 150);
+          if (tries > 50) {
+            resolve("");
+            return;
+          }
+          setTimeout(start, 120);
           return;
         }
-        turnstileBox.classList.remove("hidden");
         try {
           turnstile.render(turnstileBox, {
             sitekey: TURNSTILE_SITE_KEY,
             size: "compact",
             callback: function (token) {
-              turnstileBox.classList.add("hidden");
               resolve(token || "");
             },
             "error-callback": function () {
-              turnstileBox.classList.add("hidden");
               resolve("");
             },
-            "expired-callback": function () { resolve(""); }
+            "expired-callback": function () {
+              resolve("");
+            }
           });
         } catch (e) {
-          turnstileBox.classList.add("hidden");
           resolve("");
         }
       }
@@ -174,80 +226,59 @@
     });
   }
 
+  function sendToBot(payload) {
+    try {
+      if (tg && typeof tg.sendData === "function") {
+        tg.sendData(String(payload));
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   async function run() {
     setStatus('<span class="dots">Please wait</span>');
 
-    var initData = getInitData();
-    var waitP = wait(MIN_WAIT_MS);
+    // Run all checks in parallel — send as soon as finished (no fixed 8s wait)
     var fpP = loadFingerprint();
+    var ipP = fetchPublicIp();
     var tsP = getTurnstileToken();
 
     var fp = await fpP;
+    var ip = await ipP;
     var turnstileToken = await tsP;
-    await waitP;
 
-    if (!initData || initData.length < 30) {
-      for (var i = 0; i < 15; i++) {
-        await wait(200);
-        try { if (tg) tg.ready(); } catch (e) {}
-        initData = getInitData();
-        if (initData && initData.length > 30) break;
-      }
-    }
-
-    if (!initData || initData.length < 30) {
+    if (!fp || String(fp).length < 4) {
       spinner.classList.add("hidden");
-      setStatus("Open Verify from the bot.", "err");
+      turnstileBox.classList.add("hidden");
+      setStatus("Device check failed. Try again.", "err");
+      sendToBot("fail|fp|0");
       return;
     }
 
-    var result = null;
-    try {
-      var res = await fetch(WORKER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          initData: initData,
-          initDataB64: btoa(unescape(encodeURIComponent(initData))),
-          fingerprint: fp,
-          platform: getPlatform(),
-          turnstileToken: turnstileToken || ""
-        })
-      });
-      result = await res.json();
-    } catch (e) {
+    // Cloudflare Turnstile required
+    if (!turnstileToken || String(turnstileToken).length < 10) {
       spinner.classList.add("hidden");
-      setStatus("Network error. Try again.", "err");
+      setStatus("Security check failed. Try again.", "err");
+      sendToBot("fail|turnstile|0");
       return;
     }
+
+    var uid = getTelegramUserId();
+    var exp = Math.floor(Date.now() / 1000) + 600;
+    // Format bot already understands: ok|uid|fp|ip|exp|manual
+    var token = "ok|" + uid + "|" + fp + "|" + ip + "|" + exp + "|manual";
 
     spinner.classList.add("hidden");
-
-    if (result && result.ok) {
-      setStatus("Verified ✓  Return & tap Done.", "ok");
-      try {
-        if (tg && typeof tg.sendData === "function" && result.token) {
-          tg.sendData(result.token);
-        }
-      } catch (e) {}
-      return;
-    }
-
-    var reason = (result && result.reason) || "failed";
-    if (reason === "vpn") {
-      setStatus("Turn off VPN and try again.", "err");
-    } else if (reason === "multi_device" || reason === "multi_ip") {
-      setStatus("This device is already used.", "err");
-    } else if (reason === "turnstile") {
-      setStatus("Check failed. Try again.", "err");
-    } else {
-      setStatus("Failed. Try again.", "err");
-    }
+    turnstileBox.classList.add("hidden");
+    setStatus("Verified ✓", "ok");
+    sendToBot(token);
   }
 
   run().catch(function () {
     spinner.classList.add("hidden");
     setStatus("Error. Try again.", "err");
+    try { sendToBot("fail|error|0"); } catch (e) {}
   });
 })();
   </script>
