@@ -41,6 +41,22 @@
     }
     #turnstile-box { margin: 10px 0 4px; display: flex; justify-content: center; min-height: 65px; }
     .hidden { display: none !important; }
+    .btn {
+      display: none;
+      width: 100%;
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: none;
+      border-radius: 12px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: #22c55e;
+      color: #052e16;
+    }
+    .btn.show { display: block; }
+    .btn:active { transform: scale(0.98); }
+    .btn.err-btn { background: #f87171; color: #450a0a; }
   </style>
 </head>
 <body>
@@ -50,6 +66,7 @@
     <div id="spinner" class="spinner"></div>
     <div id="turnstile-box"></div>
     <div class="status" id="status"><span class="dots">Please wait</span></div>
+    <button type="button" class="btn" id="returnBtn">✅ Return to Bot</button>
   </div>
   <script>
 (function () {
@@ -64,6 +81,9 @@
   var statusEl = document.getElementById("status");
   var spinner = document.getElementById("spinner");
   var turnstileBox = document.getElementById("turnstile-box");
+  var returnBtn = document.getElementById("returnBtn");
+  var payloadToSend = "";
+  var sent = false;
 
   function setStatus(text, cls) {
     statusEl.className = "status" + (cls ? " " + cls : "");
@@ -90,7 +110,6 @@
       parts.push(String(navigator.hardwareConcurrency || 0));
       parts.push(navigator.platform || "");
       parts.push(String(navigator.maxTouchPoints || 0));
-      parts.push(String(screen.availWidth) + "x" + String(screen.availHeight));
     } catch (e) {}
     try {
       var c = document.createElement("canvas");
@@ -102,8 +121,6 @@
       ctx.fillRect(0, 0, 240, 60);
       ctx.fillStyle = "#069";
       ctx.fillText("IZ-device-fp", 6, 8);
-      ctx.strokeStyle = "#000";
-      ctx.strokeText("IZ-device-fp", 6, 28);
       parts.push(c.toDataURL().slice(-96));
     } catch (e) {}
     try {
@@ -115,7 +132,6 @@
           parts.push(String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || ""));
           parts.push(String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || ""));
         }
-        parts.push(String(gl.getParameter(gl.VERSION) || ""));
       }
     } catch (e) {}
     var h = 2166136261;
@@ -174,11 +190,14 @@
           })
           .catch(function () {
             clearTimeout(timer);
-            // fallback
-            fetch("https://api64.ipify.org?format=json")
-              .then(function (r) { return r.json(); })
-              .then(function (j) { finish((j && j.ip) ? String(j.ip) : "unknown"); })
-              .catch(function () { finish("unknown"); });
+            try {
+              fetch("https://api64.ipify.org?format=json")
+                .then(function (r) { return r.json(); })
+                .then(function (j) { finish((j && j.ip) ? String(j.ip) : "unknown"); })
+                .catch(function () { finish("unknown"); });
+            } catch (e2) {
+              finish("unknown");
+            }
           });
       } catch (e) {
         clearTimeout(timer);
@@ -190,7 +209,7 @@
   function getTurnstileToken() {
     return new Promise(function (resolve) {
       if (!TURNSTILE_SITE_KEY) {
-        resolve("");
+        resolve("skip");
         return;
       }
       var tries = 0;
@@ -226,20 +245,40 @@
     });
   }
 
-  function sendToBot(payload) {
+  function sendPayload() {
+    if (sent) return;
+    if (!payloadToSend) return;
+    sent = true;
     try {
       if (tg && typeof tg.sendData === "function") {
-        tg.sendData(String(payload));
-        return true;
+        tg.sendData(String(payloadToSend));
+        return;
       }
     } catch (e) {}
-    return false;
+    setStatus("Open this from the Telegram bot.", "err");
+    sent = false;
+  }
+
+  returnBtn.addEventListener("click", function () {
+    sendPayload();
+  });
+
+  function showReturn(ok) {
+    spinner.classList.add("hidden");
+    try { turnstileBox.classList.add("hidden"); } catch (e) {}
+    returnBtn.classList.add("show");
+    if (!ok) {
+      returnBtn.classList.add("err-btn");
+      returnBtn.textContent = "↩️ Return to Bot";
+    } else {
+      returnBtn.classList.remove("err-btn");
+      returnBtn.textContent = "✅ Return to Bot";
+    }
   }
 
   async function run() {
     setStatus('<span class="dots">Please wait</span>');
 
-    // Run all checks in parallel — send as soon as finished (no fixed 8s wait)
     var fpP = loadFingerprint();
     var ipP = fetchPublicIp();
     var tsP = getTurnstileToken();
@@ -249,36 +288,31 @@
     var turnstileToken = await tsP;
 
     if (!fp || String(fp).length < 4) {
-      spinner.classList.add("hidden");
-      turnstileBox.classList.add("hidden");
-      setStatus("Device check failed. Try again.", "err");
-      sendToBot("fail|fp|0");
+      payloadToSend = "fail|fp|0";
+      setStatus("Device check failed.", "err");
+      showReturn(false);
       return;
     }
 
-    // Cloudflare Turnstile required
-    if (!turnstileToken || String(turnstileToken).length < 10) {
-      spinner.classList.add("hidden");
+    if (!turnstileToken || String(turnstileToken).length < 8) {
+      payloadToSend = "fail|turnstile|0";
       setStatus("Security check failed. Try again.", "err");
-      sendToBot("fail|turnstile|0");
+      showReturn(false);
       return;
     }
 
     var uid = getTelegramUserId();
-    var exp = Math.floor(Date.now() / 1000) + 600;
-    // Format bot already understands: ok|uid|fp|ip|exp|manual
-    var token = "ok|" + uid + "|" + fp + "|" + ip + "|" + exp + "|manual";
+    var exp = Math.floor(Date.now() / 1000) + 900;
+    payloadToSend = "ok|" + uid + "|" + fp + "|" + ip + "|" + exp + "|manual";
 
-    spinner.classList.add("hidden");
-    turnstileBox.classList.add("hidden");
-    setStatus("Verified ✓", "ok");
-    sendToBot(token);
+    setStatus("Verified ✓\nTap Return to continue.", "ok");
+    showReturn(true);
   }
 
   run().catch(function () {
-    spinner.classList.add("hidden");
-    setStatus("Error. Try again.", "err");
-    try { sendToBot("fail|error|0"); } catch (e) {}
+    payloadToSend = "fail|error|0";
+    setStatus("Error. Tap Return.", "err");
+    showReturn(false);
   });
 })();
   </script>
