@@ -19,44 +19,50 @@
     .card {
       width: 100%; max-width: 360px;
       background: var(--tg-theme-secondary-bg-color, #1e293b);
-      border-radius: 16px; padding: 28px 22px; text-align: center;
+      border-radius: 16px; padding: 28px 22px 22px; text-align: center;
       box-shadow: 0 8px 32px rgba(0,0,0,.35);
     }
-    .shield { font-size: 48px; margin-bottom: 12px; }
-    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 12px; }
-    .status { font-size: 0.95rem; min-height: 1.4em; margin-top: 12px; opacity: 0.95; }
+    .shield { font-size: 48px; margin-bottom: 10px; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 10px; }
+    .status { font-size: 0.95rem; min-height: 1.3em; margin-top: 10px; white-space: pre-line; }
     .ok { color: #4ade80; }
     .err { color: #f87171; }
     .spinner {
-      width: 48px; height: 48px; margin: 10px auto 6px;
+      width: 44px; height: 44px; margin: 8px auto 6px;
       border: 3px solid rgba(255,255,255,.12);
       border-top-color: #38bdf8; border-radius: 50%;
       animation: spin 0.85s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .dots::after { content: ""; animation: dots 1.4s steps(4, end) infinite; }
-    @keyframes dots {
-      0% { content: ""; } 25% { content: "."; }
-      50% { content: ".."; } 75% { content: "..."; }
+    #turnstile-box {
+      margin: 12px 0 8px;
+      display: flex;
+      justify-content: center;
+      min-height: 70px;
     }
-    #turnstile-box { margin: 10px 0 4px; display: flex; justify-content: center; min-height: 65px; }
     .hidden { display: none !important; }
-    .btn {
+    #returnBtn {
       display: none;
       width: 100%;
       margin-top: 18px;
-      padding: 14px 16px;
+      padding: 16px 18px;
       border: none;
-      border-radius: 12px;
-      font-size: 1.05rem;
+      border-radius: 14px;
+      font-size: 1.1rem;
       font-weight: 700;
       cursor: pointer;
       background: #22c55e;
       color: #052e16;
+      box-shadow: 0 4px 14px rgba(34, 197, 94, 0.35);
     }
-    .btn.show { display: block; }
-    .btn:active { transform: scale(0.98); }
-    .btn.err-btn { background: #f87171; color: #450a0a; }
+    #returnBtn.show { display: block; }
+    #returnBtn:active { transform: scale(0.98); }
+    #returnBtn.fail {
+      background: #64748b;
+      color: #f8fafc;
+      box-shadow: none;
+    }
+    .hint { font-size: 0.85rem; opacity: 0.85; margin-top: 12px; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -65,8 +71,9 @@
     <h1>Device Verification</h1>
     <div id="spinner" class="spinner"></div>
     <div id="turnstile-box"></div>
-    <div class="status" id="status"><span class="dots">Please wait</span></div>
-    <button type="button" class="btn" id="returnBtn">✅ Return to Bot</button>
+    <div class="status" id="status">Please wait...</div>
+    <button type="button" id="returnBtn">✅ Return to Bot</button>
+    <div class="hint" id="hint"></div>
   </div>
   <script>
 (function () {
@@ -82,12 +89,13 @@
   var spinner = document.getElementById("spinner");
   var turnstileBox = document.getElementById("turnstile-box");
   var returnBtn = document.getElementById("returnBtn");
+  var hintEl = document.getElementById("hint");
   var payloadToSend = "";
   var sent = false;
 
   function setStatus(text, cls) {
     statusEl.className = "status" + (cls ? " " + cls : "");
-    statusEl.innerHTML = text;
+    statusEl.textContent = text;
   }
 
   function getTelegramUserId() {
@@ -102,30 +110,24 @@
   function localFingerprint() {
     var parts = [];
     try {
-      parts.push(navigator.userAgent || "");
-      parts.push(navigator.language || "");
-      parts.push(String(screen.width) + "x" + String(screen.height) + "x" + String(screen.colorDepth || 0));
+      parts.push(navigator.userAgent || "", navigator.language || "");
+      parts.push(String(screen.width) + "x" + String(screen.height));
       parts.push(String(window.devicePixelRatio || 1));
       parts.push(Intl.DateTimeFormat().resolvedOptions().timeZone || "");
-      parts.push(String(navigator.hardwareConcurrency || 0));
-      parts.push(navigator.platform || "");
+      parts.push(String(navigator.hardwareConcurrency || 0), navigator.platform || "");
       parts.push(String(navigator.maxTouchPoints || 0));
     } catch (e) {}
     try {
       var c = document.createElement("canvas");
       c.width = 240; c.height = 60;
       var ctx = c.getContext("2d");
-      ctx.textBaseline = "top";
-      ctx.font = "14px Arial";
-      ctx.fillStyle = "#f60";
-      ctx.fillRect(0, 0, 240, 60);
-      ctx.fillStyle = "#069";
-      ctx.fillText("IZ-device-fp", 6, 8);
+      ctx.textBaseline = "top"; ctx.font = "14px Arial";
+      ctx.fillStyle = "#f60"; ctx.fillRect(0, 0, 240, 60);
+      ctx.fillStyle = "#069"; ctx.fillText("IZ-device-fp", 6, 8);
       parts.push(c.toDataURL().slice(-96));
     } catch (e) {}
     try {
-      var canvas = document.createElement("canvas");
-      var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      var gl = document.createElement("canvas").getContext("webgl");
       if (gl) {
         var dbg = gl.getExtension("WEBGL_debug_renderer_info");
         if (dbg) {
@@ -134,8 +136,7 @@
         }
       }
     } catch (e) {}
-    var h = 2166136261;
-    var str = parts.join("|");
+    var h = 2166136261, str = parts.join("|");
     for (var i = 0; i < str.length; i++) {
       h ^= str.charCodeAt(i);
       h = Math.imul(h, 16777619);
@@ -157,8 +158,7 @@
         s.async = true;
         s.onload = function () {
           try {
-            FingerprintJS.load()
-              .then(function (fp) { return fp.get(); })
+            FingerprintJS.load().then(function (fp) { return fp.get(); })
               .then(function (r) { finish(r && r.visitorId ? r.visitorId : ""); })
               .catch(function () { finish(""); });
           } catch (e) { finish(""); }
@@ -166,9 +166,7 @@
         s.onerror = function () { finish(""); };
         document.head.appendChild(s);
         setTimeout(function () { finish(""); }, 4500);
-      } catch (e) {
-        finish("");
-      }
+      } catch (e) { finish(""); }
     });
   }
 
@@ -190,14 +188,7 @@
           })
           .catch(function () {
             clearTimeout(timer);
-            try {
-              fetch("https://api64.ipify.org?format=json")
-                .then(function (r) { return r.json(); })
-                .then(function (j) { finish((j && j.ip) ? String(j.ip) : "unknown"); })
-                .catch(function () { finish("unknown"); });
-            } catch (e2) {
-              finish("unknown");
-            }
+            finish("unknown");
           });
       } catch (e) {
         clearTimeout(timer);
@@ -206,112 +197,149 @@
     });
   }
 
-  function getTurnstileToken() {
+  /* STRICT Turnstile — must get a real token */
+  function getTurnstileTokenStrict() {
     return new Promise(function (resolve) {
       if (!TURNSTILE_SITE_KEY) {
-        resolve("skip");
+        resolve("");
         return;
       }
       var tries = 0;
+      var finished = false;
+      function done(token) {
+        if (finished) return;
+        finished = true;
+        resolve(token || "");
+      }
       function start() {
         if (typeof turnstile === "undefined") {
           tries++;
           if (tries > 50) {
-            resolve("");
+            done("");
             return;
           }
-          setTimeout(start, 120);
+          setTimeout(start, 150);
           return;
         }
         try {
+          setStatus("Complete the security check...");
           turnstile.render(turnstileBox, {
             sitekey: TURNSTILE_SITE_KEY,
-            size: "compact",
+            size: "normal",
+            theme: "dark",
             callback: function (token) {
-              resolve(token || "");
+              done(token || "");
             },
             "error-callback": function () {
-              resolve("");
+              done("");
             },
             "expired-callback": function () {
-              resolve("");
+              done("");
             }
           });
         } catch (e) {
-          resolve("");
+          done("");
         }
       }
       start();
     });
   }
 
-  function sendPayload() {
+  function sendToBot() {
     if (sent) return;
-    if (!payloadToSend) return;
+    if (!payloadToSend) {
+      setStatus("Not ready yet.", "err");
+      return;
+    }
+    if (!tg || typeof tg.sendData !== "function") {
+      setStatus("Open from bot keyboard: 🔒 Verify", "err");
+      hintEl.textContent = "Must open from the bot bottom keyboard button.";
+      return;
+    }
     sent = true;
     try {
-      if (tg && typeof tg.sendData === "function") {
-        tg.sendData(String(payloadToSend));
-        return;
-      }
-    } catch (e) {}
-    setStatus("Open this from the Telegram bot.", "err");
-    sent = false;
-  }
-
-  returnBtn.addEventListener("click", function () {
-    sendPayload();
-  });
-
-  function showReturn(ok) {
-    spinner.classList.add("hidden");
-    try { turnstileBox.classList.add("hidden"); } catch (e) {}
-    returnBtn.classList.add("show");
-    if (!ok) {
-      returnBtn.classList.add("err-btn");
-      returnBtn.textContent = "↩️ Return to Bot";
-    } else {
-      returnBtn.classList.remove("err-btn");
-      returnBtn.textContent = "✅ Return to Bot";
+      tg.sendData(String(payloadToSend));
+    } catch (e) {
+      sent = false;
+      setStatus("Send failed. Tap again.", "err");
     }
   }
 
+  function showReturn(ok) {
+    spinner.classList.add("hidden");
+    returnBtn.classList.add("show");
+    if (!ok) {
+      returnBtn.classList.add("fail");
+      returnBtn.textContent = "↩️ Return to Bot";
+    } else {
+      returnBtn.classList.remove("fail");
+      returnBtn.textContent = "✅ Return to Bot";
+    }
+    try {
+      if (tg && tg.MainButton) {
+        tg.MainButton.setText(ok ? "✅ Return to Bot" : "↩️ Return to Bot");
+        tg.MainButton.color = ok ? "#22c55e" : "#64748b";
+        tg.MainButton.textColor = "#ffffff";
+        tg.MainButton.show();
+        tg.MainButton.enable();
+        tg.MainButton.onClick(sendToBot);
+      }
+    } catch (e) {}
+  }
+
+  returnBtn.addEventListener("click", function () {
+    sendToBot();
+  });
+
   async function run() {
-    setStatus('<span class="dots">Please wait</span>');
+    setStatus("Please wait...");
+    hintEl.textContent = "";
 
     var fpP = loadFingerprint();
     var ipP = fetchPublicIp();
-    var tsP = getTurnstileToken();
 
     var fp = await fpP;
     var ip = await ipP;
-    var turnstileToken = await tsP;
+
+    /* STRICT Cloudflare Turnstile */
+    var turnstileToken = await getTurnstileTokenStrict();
+
+    spinner.classList.add("hidden");
 
     if (!fp || String(fp).length < 4) {
       payloadToSend = "fail|fp|0";
       setStatus("Device check failed.", "err");
+      hintEl.textContent = "Tap Return to Bot below.";
       showReturn(false);
       return;
     }
 
-    if (!turnstileToken || String(turnstileToken).length < 8) {
+    if (!turnstileToken || String(turnstileToken).length < 20) {
       payloadToSend = "fail|turnstile|0";
-      setStatus("Security check failed. Try again.", "err");
+      setStatus("Security check failed.", "err");
+      hintEl.textContent = "Complete Cloudflare check, or tap Return and try again.";
       showReturn(false);
       return;
     }
+
+    /* hide widget after success */
+    try { turnstileBox.classList.add("hidden"); } catch (e) {}
 
     var uid = getTelegramUserId();
     var exp = Math.floor(Date.now() / 1000) + 900;
     payloadToSend = "ok|" + uid + "|" + fp + "|" + ip + "|" + exp + "|manual";
 
-    setStatus("Verified ✓\nTap Return to continue.", "ok");
+    setStatus("Verified ✓");
+    statusEl.className = "status ok";
+    hintEl.textContent = "Tap the green button to return to the bot.";
     showReturn(true);
   }
 
   run().catch(function () {
     payloadToSend = "fail|error|0";
-    setStatus("Error. Tap Return.", "err");
+    spinner.classList.add("hidden");
+    setStatus("Error.", "err");
+    hintEl.textContent = "Tap Return to Bot below.";
     showReturn(false);
   });
 })();
